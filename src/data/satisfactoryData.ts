@@ -1,6 +1,7 @@
 import rawBuildings from "./raw/DocsBuildings.json";
 import rawItems from "./raw/DocsItems.json";
 import rawRecipes from "./raw/DocsRecipes.json";
+import type { BuildingType } from "../types";
 
 type RawItem = {
   className: string;
@@ -91,6 +92,7 @@ export type SatisfactoryRecipe = {
   ingredients: RecipeAmount[];
   products: RecipeAmount[];
   producedIn: string[];
+  producedInClassNames: string[];
   category: RecipeCategory;
   alternate: boolean;
   variablePower: string | null;
@@ -191,6 +193,7 @@ export const satisfactoryRecipes: SatisfactoryRecipe[] = flatten(recipeRecords)
       (buildingClassName) =>
         buildingByClassName.get(buildingClassName)?.name ?? buildingClassName,
     ),
+    producedInClassNames: recipe.producedIn,
     category: recipeCategory(recipe),
     alternate: recipe.alternate,
     variablePower:
@@ -216,18 +219,28 @@ export const datasetSummary = {
   factoryRecipeCount: factoryRecipes.length,
 };
 
-const placedBuildingRecipeAliases: Record<string, string[]> = {
-  Miner: ["Miner Mk.1", "Miner Mk.2", "Miner Mk.3"],
-  Smelter: ["Smelter"],
-  Constructor: ["Constructor"],
-  Storage: ["Storage Container", "Industrial Storage Container"],
+const machineClassNamesByBuildingType: Partial<Record<BuildingType, string[]>> = {
+  Smelter: ["Desc_SmelterMk1_C"],
+  Constructor: ["Desc_ConstructorMk1_C"],
+  Assembler: ["Desc_AssemblerMk1_C"],
+  Foundry: ["Desc_FoundryMk1_C"],
+  Manufacturer: ["Desc_ManufacturerMk1_C"],
+  Refinery: ["Desc_OilRefinery_C"],
+  Packager: ["Desc_Packager_C"],
+  Blender: ["Desc_Blender_C"],
+  "Particle Accelerator": ["Desc_HadronCollider_C"],
+  Converter: ["Desc_Converter_C"],
+  "Quantum Encoder": ["Desc_QuantumEncoder_C"],
+  "Nuclear Power Plant": ["Desc_GeneratorNuclear_C"],
 };
 
-export const getRecipesForPlacedBuilding = (buildingType: string) => {
-  const aliases = placedBuildingRecipeAliases[buildingType] ?? [buildingType];
+export const getRecipesForPlacedBuilding = (buildingType: BuildingType) => {
+  const machineClassNames = machineClassNamesByBuildingType[buildingType] ?? [];
 
-  return satisfactoryRecipes.filter((recipe) =>
-    recipe.producedIn.some((machineName) => aliases.includes(machineName)),
+  return factoryRecipes.filter((recipe) =>
+    recipe.producedInClassNames.some((machineClassName) =>
+      machineClassNames.includes(machineClassName),
+    ),
   );
 };
 
@@ -242,6 +255,11 @@ export const recipeProducesQuery = (
   recipe.products.some((product) =>
     product.name.toLowerCase().includes(normalizedQuery),
   );
+
+export const recipeExactNameMatchesQuery = (
+  recipe: SatisfactoryRecipe,
+  normalizedQuery: string,
+) => recipe.name.toLowerCase() === normalizedQuery;
 
 export const recipeGeneralMatchesQuery = (
   recipe: SatisfactoryRecipe,

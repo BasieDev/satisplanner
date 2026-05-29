@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   datasetSummary,
   getRecipesForPlacedBuilding,
+  recipeExactNameMatchesQuery,
   recipeGeneralMatchesQuery,
   recipeProducesQuery,
   satisfactoryRecipes,
@@ -10,11 +11,12 @@ import {
   type SatisfactoryRecipe,
 } from "../data/satisfactoryData";
 import { formatRate } from "../factoryPorts";
+import type { BuildingType } from "../types";
 
 type RecipeFilter = "All" | RecipeCategory;
 
 type RecipeBrowserProps = {
-  selectedBuildingType: string | null;
+  selectedBuildingType: BuildingType | null;
   selectedRecipeClassName?: string | null;
   onRecipeSelect?: (recipeClassName: string) => void;
 };
@@ -51,6 +53,14 @@ export function RecipeBrowser({
 
     if (normalizedQuery.length === 0) {
       return categoryMatches;
+    }
+
+    const exactRecipeMatches = categoryMatches.filter((recipe) =>
+      recipeExactNameMatchesQuery(recipe, normalizedQuery),
+    );
+
+    if (exactRecipeMatches.length > 0) {
+      return exactRecipeMatches;
     }
 
     const producedItemMatches = categoryMatches.filter((recipe) =>
