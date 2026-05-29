@@ -115,6 +115,18 @@ export const buildingCategories: BuildingCategory[] = [
     name: "Logistics",
     tools: [
       {
+        type: "Splitter",
+        label: "Conveyor Splitter",
+        imageSrc: "/buildings/conveyor-splitter.png",
+        searchTags: ["belt", "split", "logistics"],
+      },
+      {
+        type: "Merger",
+        label: "Conveyor Merger",
+        imageSrc: "/buildings/conveyor-merger.png",
+        searchTags: ["belt", "merge", "logistics"],
+      },
+      {
         type: "Storage",
         label: "Storage Container",
         imageSrc: "/buildings/storage-container.png",

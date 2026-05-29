@@ -14,6 +14,8 @@ export const BUILDING_TYPES = [
   "Converter",
   "Quantum Encoder",
   "Nuclear Power Plant",
+  "Splitter",
+  "Merger",
   "Storage",
 ] as const;
 
@@ -38,6 +40,7 @@ export type PortSide = "input" | "output";
 export type ConnectionEndpoint = {
   buildingId: string;
   itemClassName: string;
+  portId?: string;
 };
 
 export type BuildingConnection = {

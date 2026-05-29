@@ -80,6 +80,14 @@ const palette: Record<BuildingType, { fill: string; stroke: string }> = {
     fill: "#14532d",
     stroke: "#4ade80",
   },
+  Splitter: {
+    fill: "#57534e",
+    stroke: "#d6d3d1",
+  },
+  Merger: {
+    fill: "#44403c",
+    stroke: "#fbbf24",
+  },
   Storage: {
     fill: "#334155",
     stroke: "#94a3b8",
@@ -272,6 +280,7 @@ export function FactoryCanvas() {
       startConnection({
         buildingId,
         itemClassName: port.itemClassName,
+        portId: port.id,
       });
       return;
     }
@@ -280,6 +289,7 @@ export function FactoryCanvas() {
       finishConnection({
         buildingId,
         itemClassName: port.itemClassName,
+        portId: port.id,
       });
       setSelectedBuilding(buildingId);
     }
@@ -301,6 +311,7 @@ export function FactoryCanvas() {
     const endpoint = {
       buildingId,
       itemClassName: port.itemClassName,
+      portId: port.id,
     };
 
     setSelectedBuilding(buildingId);
@@ -327,6 +338,7 @@ export function FactoryCanvas() {
     finishConnection({
       buildingId,
       itemClassName: port.itemClassName,
+      portId: port.id,
     });
     setSelectedBuilding(buildingId);
     setBeltDraft(null);
@@ -385,12 +397,14 @@ export function FactoryCanvas() {
               connection.from.buildingId,
               "output",
               connection.from.itemClassName,
+              connection.from.portId,
             );
             const to = getPortAtEndpoint(
               buildings,
               connection.to.buildingId,
               "input",
               connection.to.itemClassName,
+              connection.to.portId,
             );
 
             if (!from || !to) {
@@ -493,13 +507,16 @@ export function FactoryCanvas() {
             getPositionedPorts(building).map((port) => {
               const isPending =
                 pendingConnection?.buildingId === building.id &&
-                pendingConnection.itemClassName === port.itemClassName &&
+                (pendingConnection.portId === port.id ||
+                  (!pendingConnection.portId &&
+                    pendingConnection.itemClassName === port.itemClassName)) &&
                 port.side === "output";
               const canFinish =
                 pendingConnection !== null &&
                 port.side === "input" &&
                 pendingConnection.buildingId !== building.id &&
                 (port.itemClassName === "*" ||
+                  pendingConnection.itemClassName === "*" ||
                   pendingConnection.itemClassName === port.itemClassName);
 
               return (
@@ -625,7 +642,7 @@ function GroupBuilding({
           y={building.height / 2 + 4}
           width={building.width - 16}
           height={18}
-          text={building.type === "Storage" ? "buffer" : "assign recipe"}
+          text={getBuildingSubtitle(building.type)}
           fill="#94a3b8"
           fontSize={11}
           align="center"
@@ -636,6 +653,22 @@ function GroupBuilding({
     </Group>
   );
 }
+
+const getBuildingSubtitle = (type: BuildingType) => {
+  if (type === "Storage") {
+    return "buffer";
+  }
+
+  if (type === "Splitter") {
+    return "1 in / 3 out";
+  }
+
+  if (type === "Merger") {
+    return "3 in / 1 out";
+  }
+
+  return "assign recipe";
+};
 
 type PortNodeProps = {
   buildingId: string;

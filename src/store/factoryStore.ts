@@ -24,6 +24,8 @@ const buildingDefaults: Record<BuildingType, Pick<Building, "width" | "height">>
   Converter: { width: 144, height: 112 },
   "Quantum Encoder": { width: 192, height: 160 },
   "Nuclear Power Plant": { width: 192, height: 160 },
+  Splitter: { width: 80, height: 80 },
+  Merger: { width: 80, height: 80 },
   Storage: { width: 96, height: 128 },
 };
 
@@ -60,6 +62,15 @@ type FactoryState = {
 };
 
 const snap = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
+
+const endpointsMatch = (
+  first: ConnectionEndpoint,
+  second: ConnectionEndpoint,
+) =>
+  first.buildingId === second.buildingId &&
+  (first.portId && second.portId
+    ? first.portId === second.portId
+    : first.itemClassName === second.itemClassName);
 
 const readSavedDesign = (): SavedDesign | null => {
   try {
@@ -198,6 +209,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
 
     const itemMatches =
       endpoint.itemClassName === "*" ||
+      pendingConnection.itemClassName === "*" ||
       pendingConnection.itemClassName === endpoint.itemClassName;
 
     if (!itemMatches) {
@@ -210,10 +222,8 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
         ...state.connections.filter(
           (connection) =>
             !(
-              connection.from.buildingId === pendingConnection.buildingId &&
-              connection.from.itemClassName === pendingConnection.itemClassName &&
-              connection.to.buildingId === endpoint.buildingId &&
-              connection.to.itemClassName === endpoint.itemClassName
+              endpointsMatch(connection.from, pendingConnection) &&
+              endpointsMatch(connection.to, endpoint)
             ),
         ),
         {

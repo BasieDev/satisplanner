@@ -27,6 +27,9 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
     : "";
   const inputPorts = ports.filter((port) => port.side === "input");
   const outputPorts = ports.filter((port) => port.side === "output");
+  const logisticsDescription = building
+    ? getLogisticsDescription(building.type)
+    : null;
 
   return (
     <aside className="h-full overflow-y-auto border-l border-slate-800 bg-slate-900">
@@ -110,6 +113,15 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
                   : "Choose what this miner is placed on."}
               </p>
             </section>
+          ) : logisticsDescription ? (
+            <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Logistics
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                {logisticsDescription}
+              </p>
+            </section>
           ) : (
             <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
               <label
@@ -169,10 +181,12 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
           )}
 
           <RecipeBrowser
-            selectedBuildingType={building.type === "Miner" ? null : building.type}
+            selectedBuildingType={
+              building.type === "Miner" || logisticsDescription ? null : building.type
+            }
             selectedRecipeClassName={building.recipeClassName}
             onRecipeSelect={
-              building.type === "Miner"
+              building.type === "Miner" || logisticsDescription
                 ? undefined
                 : (recipeClassName) =>
                     setBuildingRecipe(building.id, recipeClassName)
@@ -190,6 +204,22 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
       )}
     </aside>
   );
+}
+
+function getLogisticsDescription(type: Building["type"]) {
+  if (type === "Splitter") {
+    return "1 belt input, 3 belt outputs. Connected outputs share the incoming item rate.";
+  }
+
+  if (type === "Merger") {
+    return "3 belt inputs, 1 belt output. Incoming item rates combine on the output.";
+  }
+
+  if (type === "Storage") {
+    return "1 generic belt input, 1 generic belt output.";
+  }
+
+  return null;
 }
 
 function Property({ label, value }: { label: string; value: number }) {

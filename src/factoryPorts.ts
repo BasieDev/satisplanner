@@ -16,8 +16,8 @@ export type PositionedPort = PortDefinition & {
   y: number;
 };
 
-const anyItemPort = (side: PortSide): PortDefinition => ({
-  id: `${side}:*`,
+const anyItemPort = (side: PortSide, index = 0): PortDefinition => ({
+  id: `${side}:any:${index}`,
   side,
   itemClassName: "*",
   itemName: "Any item",
@@ -41,6 +41,24 @@ const amountToPort = (
 export const getBuildingPorts = (building: Building): PortDefinition[] => {
   if (building.type === "Storage") {
     return [anyItemPort("input"), anyItemPort("output")];
+  }
+
+  if (building.type === "Splitter") {
+    return [
+      anyItemPort("input"),
+      anyItemPort("output", 0),
+      anyItemPort("output", 1),
+      anyItemPort("output", 2),
+    ];
+  }
+
+  if (building.type === "Merger") {
+    return [
+      anyItemPort("input", 0),
+      anyItemPort("input", 1),
+      anyItemPort("input", 2),
+      anyItemPort("output"),
+    ];
   }
 
   if (building.type === "Miner") {
@@ -103,6 +121,7 @@ export const getPortAtEndpoint = (
   buildingId: string,
   side: PortSide,
   itemClassName: string,
+  portId?: string,
 ) => {
   const building = buildings.find((candidate) => candidate.id === buildingId);
 
@@ -110,10 +129,16 @@ export const getPortAtEndpoint = (
     return null;
   }
 
+  const ports = getPositionedPorts(building);
+
   return (
-    getPositionedPorts(building).find(
+    (portId
+      ? ports.find((port) => port.side === side && port.id === portId)
+      : null) ??
+    ports.find(
       (port) => port.side === side && port.itemClassName === itemClassName,
-    ) ?? null
+    ) ??
+    null
   );
 };
 
