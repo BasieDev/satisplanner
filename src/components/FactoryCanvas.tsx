@@ -1,5 +1,6 @@
 import {
   type DragEvent as ReactDragEvent,
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -97,6 +98,7 @@ const palette: Record<BuildingType, { fill: string; stroke: string }> = {
 const snap = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
 const WORLD_SIZE = 131_072;
 const PAN_THRESHOLD = 5;
+const RENDER_MARGIN = 768;
 
 type Camera = {
   x: number;
@@ -128,6 +130,15 @@ const screenToWorld = (point: { x: number; y: number }, camera: Camera) => ({
   x: point.x - camera.x,
   y: point.y - camera.y,
 });
+
+const rectsIntersect = (
+  first: { left: number; top: number; right: number; bottom: number },
+  second: { left: number; top: number; right: number; bottom: number },
+) =>
+  first.left <= second.right &&
+  first.right >= second.left &&
+  first.top <= second.bottom &&
+  first.bottom >= second.top;
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -174,6 +185,9 @@ export function FactoryCanvas() {
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef<PanStart | null>(null);
+  const pendingCameraRef = useRef<Camera | null>(null);
+  const cameraFrameRef = useRef<number | null>(null);
+  const isPanningRef = useRef(false);
   const suppressNextClickRef = useRef(false);
   const factoryIssues = useMemo(
     () => analyzeFactory(buildings, connections),
@@ -181,38 +195,103 @@ export function FactoryCanvas() {
   );
   const primaryIssue = factoryIssues[0] ?? null;
 
-  const verticalLines = [];
-  const horizontalLines = [];
   const visibleLeft = Math.max(0, -camera.x);
   const visibleTop = Math.max(0, -camera.y);
   const visibleRight = Math.min(WORLD_SIZE, -camera.x + size.width);
   const visibleBottom = Math.min(WORLD_SIZE, -camera.y + size.height);
   const firstGridX = Math.floor(visibleLeft / GRID_SIZE) * GRID_SIZE;
   const firstGridY = Math.floor(visibleTop / GRID_SIZE) * GRID_SIZE;
+  const renderBounds = {
+    left: Math.max(0, visibleLeft - RENDER_MARGIN),
+    top: Math.max(0, visibleTop - RENDER_MARGIN),
+    right: Math.min(WORLD_SIZE, visibleRight + RENDER_MARGIN),
+    bottom: Math.min(WORLD_SIZE, visibleBottom + RENDER_MARGIN),
+  };
+  const visibleBuildings = buildings.filter((building) =>
+    rectsIntersect(renderBounds, {
+      left: building.x,
+      top: building.y,
+      right: building.x + building.width,
+      bottom: building.y + building.height,
+    }),
+  );
+  const { verticalLines, horizontalLines } = useMemo(() => {
+    const nextVerticalLines = [];
+    const nextHorizontalLines = [];
 
-  for (let x = firstGridX; x <= visibleRight; x += GRID_SIZE) {
-    verticalLines.push(
-      <Line
-        key={`v-${x}`}
-        points={[x, visibleTop, x, visibleBottom]}
-        stroke={x % (GRID_SIZE * 8) === 0 ? "rgba(148, 163, 184, 0.28)" : "rgba(148, 163, 184, 0.14)"}
-        strokeWidth={1}
-        listening={false}
-      />,
-    );
-  }
+    for (let x = firstGridX; x <= visibleRight; x += GRID_SIZE) {
+      nextVerticalLines.push(
+        <Line
+          key={`v-${x}`}
+          points={[x, visibleTop, x, visibleBottom]}
+          stroke={
+            x % (GRID_SIZE * 8) === 0
+              ? "rgba(148, 163, 184, 0.28)"
+              : "rgba(148, 163, 184, 0.14)"
+          }
+          strokeWidth={1}
+          listening={false}
+          perfectDrawEnabled={false}
+        />,
+      );
+    }
 
-  for (let y = firstGridY; y <= visibleBottom; y += GRID_SIZE) {
-    horizontalLines.push(
-      <Line
-        key={`h-${y}`}
-        points={[visibleLeft, y, visibleRight, y]}
-        stroke={y % (GRID_SIZE * 8) === 0 ? "rgba(148, 163, 184, 0.28)" : "rgba(148, 163, 184, 0.14)"}
-        strokeWidth={1}
-        listening={false}
-      />,
-    );
-  }
+    for (let y = firstGridY; y <= visibleBottom; y += GRID_SIZE) {
+      nextHorizontalLines.push(
+        <Line
+          key={`h-${y}`}
+          points={[visibleLeft, y, visibleRight, y]}
+          stroke={
+            y % (GRID_SIZE * 8) === 0
+              ? "rgba(148, 163, 184, 0.28)"
+              : "rgba(148, 163, 184, 0.14)"
+          }
+          strokeWidth={1}
+          listening={false}
+          perfectDrawEnabled={false}
+        />,
+      );
+    }
+
+    return {
+      verticalLines: nextVerticalLines,
+      horizontalLines: nextHorizontalLines,
+    };
+  }, [
+    firstGridX,
+    firstGridY,
+    visibleBottom,
+    visibleLeft,
+    visibleRight,
+    visibleTop,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (cameraFrameRef.current !== null) {
+        window.cancelAnimationFrame(cameraFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  const scheduleCameraUpdate = (nextCamera: Camera) => {
+    pendingCameraRef.current = nextCamera;
+
+    if (cameraFrameRef.current !== null) {
+      return;
+    }
+
+    cameraFrameRef.current = window.requestAnimationFrame(() => {
+      cameraFrameRef.current = null;
+      const cameraToApply = pendingCameraRef.current;
+      pendingCameraRef.current = null;
+
+      if (cameraToApply) {
+        setCamera(cameraToApply);
+      }
+    });
+  };
 
   const handleStageClick = (event: Konva.KonvaEventObject<MouseEvent>) => {
     if (suppressNextClickRef.current) {
@@ -299,8 +378,12 @@ export function FactoryCanvas() {
           ...panStart,
           hasMoved: true,
         };
-        setIsPanning(true);
-        setCamera(
+        if (!isPanningRef.current) {
+          isPanningRef.current = true;
+          setIsPanning(true);
+        }
+
+        scheduleCameraUpdate(
           clampCamera(
             {
               x: panStart.camera.x + deltaX,
@@ -323,6 +406,7 @@ export function FactoryCanvas() {
     }
 
     panStartRef.current = null;
+    isPanningRef.current = false;
     setIsPanning(false);
 
     if (beltDraft?.hasMoved) {
@@ -333,6 +417,7 @@ export function FactoryCanvas() {
 
   const handleStageMouseLeave = () => {
     panStartRef.current = null;
+    isPanningRef.current = false;
     setIsPanning(false);
   };
 
@@ -491,10 +576,10 @@ export function FactoryCanvas() {
         <Layer x={camera.x} y={camera.y}>
           <Rect
             name="canvas-background"
-            x={0}
-            y={0}
-            width={WORLD_SIZE}
-            height={WORLD_SIZE}
+            x={visibleLeft}
+            y={visibleTop}
+            width={size.width}
+            height={size.height}
             fill="#0f172a"
           />
           {verticalLines}
@@ -523,6 +608,17 @@ export function FactoryCanvas() {
             }
 
             const middleX = (from.x + to.x) / 2;
+            const beltBounds = {
+              left: Math.min(from.x, to.x),
+              top: Math.min(from.y, to.y),
+              right: Math.max(from.x, to.x),
+              bottom: Math.max(from.y, to.y),
+            };
+
+            if (!rectsIntersect(renderBounds, beltBounds)) {
+              return null;
+            }
+
             const points = [
               from.x,
               from.y,
@@ -548,9 +644,7 @@ export function FactoryCanvas() {
                   strokeWidth={4}
                   lineCap="round"
                   lineJoin="round"
-                  shadowColor="black"
-                  shadowBlur={8}
-                  shadowOpacity={0.35}
+                  perfectDrawEnabled={false}
                 />
                 <Text
                   x={middleX - 72}
@@ -590,7 +684,7 @@ export function FactoryCanvas() {
         </Layer>
 
         <Layer x={camera.x} y={camera.y}>
-          {buildings.map((building) => {
+          {visibleBuildings.map((building) => {
             const colors = palette[building.type];
             const isSelected = selectedBuildingIds.includes(building.id);
             const recipe = getRecipeByClassName(building.recipeClassName);
@@ -614,7 +708,7 @@ export function FactoryCanvas() {
         </Layer>
 
         <Layer x={camera.x} y={camera.y}>
-          {buildings.flatMap((building) =>
+          {visibleBuildings.flatMap((building) =>
             getPositionedPorts(building).map((port) => {
               const isPending =
                 pendingConnection?.buildingId === building.id &&
@@ -662,7 +756,7 @@ type GroupBuildingProps = {
   onMove: (id: string, x: number, y: number, snapToGrid?: boolean) => void;
 };
 
-function GroupBuilding({
+const GroupBuilding = memo(function GroupBuilding({
   building,
   label,
   recipeName,
@@ -673,11 +767,6 @@ function GroupBuilding({
   onSelect,
   onMove,
 }: GroupBuildingProps) {
-  const handleDragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
-    const node = event.target;
-    onMove(building.id, node.x(), node.y(), false);
-  };
-
   const handleDragEnd = (event: Konva.KonvaEventObject<DragEvent>) => {
     const node = event.target;
     onMove(building.id, node.x(), node.y(), true);
@@ -705,7 +794,6 @@ function GroupBuilding({
           onSelect(building.id);
         }
       }}
-      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
     >
       <Rect
@@ -717,10 +805,7 @@ function GroupBuilding({
         stroke={stroke}
         strokeWidth={strokeWidth}
         cornerRadius={4}
-        shadowColor="black"
-        shadowOpacity={0.28}
-        shadowBlur={12}
-        shadowOffset={{ x: 0, y: 6 }}
+        perfectDrawEnabled={false}
       />
       <Text
         x={0}
@@ -763,7 +848,7 @@ function GroupBuilding({
       )}
     </Group>
   );
-}
+});
 
 const getBuildingSubtitle = (type: BuildingType) => {
   if (type === "Storage") {
@@ -837,9 +922,7 @@ function PortNode({
         fill={fill}
         stroke={stroke}
         strokeWidth={3}
-        shadowColor="black"
-        shadowBlur={6}
-        shadowOpacity={0.35}
+        perfectDrawEnabled={false}
       />
       <Text
         x={labelX}

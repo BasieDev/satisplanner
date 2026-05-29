@@ -11,6 +11,12 @@ export function FactoryEditor() {
   const deleteSelectedBuildings = useFactoryStore(
     (state) => state.deleteSelectedBuildings,
   );
+  const copySelectedBuildings = useFactoryStore(
+    (state) => state.copySelectedBuildings,
+  );
+  const pasteCopiedBuildings = useFactoryStore(
+    (state) => state.pasteCopiedBuildings,
+  );
 
   const selectedBuilding = useMemo(
     () => buildings.find((building) => building.id === selectedBuildingId) ?? null,
@@ -25,19 +31,34 @@ export function FactoryEditor() {
         (target.isContentEditable ||
           ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 
-      if (isEditableTarget || selectedBuildingIds.length === 0) {
+      if (isEditableTarget) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const isShortcut = event.ctrlKey || event.metaKey;
+
+      if (isShortcut && key === "c" && selectedBuildingIds.length > 0) {
+        event.preventDefault();
+        copySelectedBuildings();
+        return;
+      }
+
+      if (isShortcut && key === "v") {
+        event.preventDefault();
+        pasteCopiedBuildings();
         return;
       }
 
       const shouldDelete =
         event.key === "Delete" ||
         event.key === "Backspace" ||
-        (event.key.toLowerCase() === "d" &&
+        (key === "d" &&
           !event.ctrlKey &&
           !event.metaKey &&
           !event.altKey);
 
-      if (!shouldDelete) {
+      if (!shouldDelete || selectedBuildingIds.length === 0) {
         return;
       }
 
@@ -47,7 +68,12 @@ export function FactoryEditor() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deleteSelectedBuildings, selectedBuildingIds.length]);
+  }, [
+    copySelectedBuildings,
+    deleteSelectedBuildings,
+    pasteCopiedBuildings,
+    selectedBuildingIds.length,
+  ]);
 
   return (
     <main className="grid h-screen w-screen grid-cols-[280px_minmax(0,1fr)_340px] overflow-hidden bg-slate-950 text-slate-100">

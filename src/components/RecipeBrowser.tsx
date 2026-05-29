@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   datasetSummary,
   getRecipesForPlacedBuilding,
@@ -28,6 +28,7 @@ const filters: RecipeFilter[] = [
   "Build Gun",
   "Customizer",
 ];
+const RECIPE_RESULT_LIMIT = 30;
 
 export function RecipeBrowser({
   selectedBuildingType,
@@ -36,6 +37,7 @@ export function RecipeBrowser({
 }: RecipeBrowserProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<RecipeFilter>("All");
+  const normalizedQuery = query.trim().toLowerCase();
 
   const selectedBuildingRecipes = useMemo(
     () =>
@@ -46,7 +48,6 @@ export function RecipeBrowser({
   );
 
   const matchingRecipes = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
     const categoryMatches = satisfactoryRecipes.filter(
       (recipe) => filter === "All" || recipe.category === filter,
     );
@@ -74,9 +75,9 @@ export function RecipeBrowser({
     return categoryMatches.filter((recipe) =>
       recipeGeneralMatchesQuery(recipe, normalizedQuery),
     );
-  }, [filter, query]);
+  }, [filter, normalizedQuery]);
 
-  const visibleRecipes = matchingRecipes.slice(0, 80);
+  const visibleRecipes = matchingRecipes.slice(0, RECIPE_RESULT_LIMIT);
 
   return (
     <section className="space-y-4">
@@ -196,7 +197,7 @@ function SummaryStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function RecipeCard({
+const RecipeCard = memo(function RecipeCard({
   recipe,
   compact = false,
   isAssigned = false,
@@ -257,7 +258,7 @@ function RecipeCard({
       ) : null}
     </article>
   );
-}
+});
 
 function RecipeAmounts({
   title,

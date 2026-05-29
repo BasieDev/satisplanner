@@ -36,6 +36,12 @@ export type SavedDesign = {
   connections: BuildingConnection[];
 };
 
+type FactoryClipboard = {
+  buildings: Building[];
+  connections: BuildingConnection[];
+  pasteCount: number;
+};
+
 type FactoryState = {
   buildings: Building[];
   connections: BuildingConnection[];
@@ -43,6 +49,7 @@ type FactoryState = {
   selectedBuildingId: string | null;
   selectedBuildingIds: string[];
   pendingConnection: ConnectionEndpoint | null;
+  clipboard: FactoryClipboard | null;
   setSelectedTool: (tool: BuildingType | null) => void;
   setSelectedBuilding: (id: string | null, additive?: boolean) => void;
   placeBuilding: (type: BuildingType, x: number, y: number) => void;
@@ -58,6 +65,8 @@ type FactoryState = {
     purity?: Building["extractionPurity"],
   ) => void;
   deleteSelectedBuildings: () => void;
+  copySelectedBuildings: () => void;
+  pasteCopiedBuildings: () => void;
   getDesignSnapshot: () => SavedDesign;
   importDesign: (design: unknown) => boolean;
   clearDesign: () => void;
@@ -66,6 +75,7 @@ type FactoryState = {
 };
 
 const snap = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
+const PASTE_OFFSET = GRID_SIZE * 2;
 
 const endpointsMatch = (
   first: ConnectionEndpoint,
@@ -122,6 +132,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
   selectedBuildingId: null,
   selectedBuildingIds: [],
   pendingConnection: null,
+  clipboard: null,
 
   setSelectedTool: (tool) =>
     set({
@@ -319,6 +330,95 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       };
     }),
 
+  copySelectedBuildings: () =>
+    set((state) => {
+      if (state.selectedBuildingIds.length === 0) {
+        return state;
+      }
+
+      const selectedBuildingIds = new Set(state.selectedBuildingIds);
+      const copiedBuildings = state.buildings
+        .filter((building) => selectedBuildingIds.has(building.id))
+        .map((building) => ({ ...building }));
+      const copiedConnections = state.connections
+        .filter(
+          (connection) =>
+            selectedBuildingIds.has(connection.from.buildingId) &&
+            selectedBuildingIds.has(connection.to.buildingId),
+        )
+        .map((connection) => ({
+          ...connection,
+          from: { ...connection.from },
+          to: { ...connection.to },
+        }));
+
+      return {
+        clipboard: {
+          buildings: copiedBuildings,
+          connections: copiedConnections,
+          pasteCount: 0,
+        },
+      };
+    }),
+
+  pasteCopiedBuildings: () =>
+    set((state) => {
+      if (!state.clipboard || state.clipboard.buildings.length === 0) {
+        return state;
+      }
+
+      const offset = PASTE_OFFSET * (state.clipboard.pasteCount + 1);
+      const idMap = new Map<string, string>();
+      const pastedBuildings = state.clipboard.buildings.map((building) => {
+        const id = nanoid();
+        idMap.set(building.id, id);
+
+        return {
+          ...building,
+          id,
+          x: snap(building.x + offset),
+          y: snap(building.y + offset),
+        };
+      });
+      const pastedConnections: BuildingConnection[] =
+        state.clipboard.connections.flatMap((connection) => {
+          const fromBuildingId = idMap.get(connection.from.buildingId);
+          const toBuildingId = idMap.get(connection.to.buildingId);
+
+          if (!fromBuildingId || !toBuildingId) {
+            return [];
+          }
+
+          return [
+            {
+              id: nanoid(),
+              from: {
+                ...connection.from,
+                buildingId: fromBuildingId,
+              },
+              to: {
+                ...connection.to,
+                buildingId: toBuildingId,
+              },
+            },
+          ];
+        });
+      const selectedBuildingIds = pastedBuildings.map((building) => building.id);
+
+      return {
+        buildings: [...state.buildings, ...pastedBuildings],
+        connections: [...state.connections, ...pastedConnections],
+        selectedBuildingId: selectedBuildingIds[selectedBuildingIds.length - 1] ?? null,
+        selectedBuildingIds,
+        selectedTool: null,
+        pendingConnection: null,
+        clipboard: {
+          ...state.clipboard,
+          pasteCount: state.clipboard.pasteCount + 1,
+        },
+      };
+    }),
+
   getDesignSnapshot: () =>
     createDesignSnapshot(get().buildings, get().connections),
 
@@ -337,6 +437,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       selectedBuildingIds: [],
       selectedTool: null,
       pendingConnection: null,
+      clipboard: null,
     });
 
     return true;
@@ -351,6 +452,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       selectedBuildingIds: [],
       selectedTool: null,
       pendingConnection: null,
+      clipboard: null,
     });
   },
 
@@ -368,6 +470,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       selectedBuildingIds: [],
       selectedTool: null,
       pendingConnection: null,
+      clipboard: null,
     });
   },
 }));
