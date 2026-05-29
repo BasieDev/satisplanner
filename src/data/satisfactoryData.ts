@@ -231,7 +231,6 @@ const machineClassNamesByBuildingType: Partial<Record<BuildingType, string[]>> =
   "Particle Accelerator": ["Desc_HadronCollider_C"],
   Converter: ["Desc_Converter_C"],
   "Quantum Encoder": ["Desc_QuantumEncoder_C"],
-  "Nuclear Power Plant": ["Desc_GeneratorNuclear_C"],
 };
 
 export const getRecipesForPlacedBuilding = (buildingType: BuildingType) => {

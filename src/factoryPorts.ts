@@ -1,6 +1,13 @@
 import { type Building, type PortSide } from "./types";
 import { getRecipeByClassName, type RecipeAmount } from "./data/satisfactoryData";
-import { getMineableResource, getMinerRate } from "./miningData";
+import {
+  getMineableResource,
+  getMinerRate,
+  getOilExtractorRate,
+  getResourceWellRate,
+  getWellResource,
+  isMinerBuilding,
+} from "./miningData";
 
 export type PortDefinition = {
   id: string;
@@ -25,6 +32,31 @@ const anyItemPort = (side: PortSide, index = 0): PortDefinition => ({
   form: "solid",
 });
 
+const anyFluidPort = (side: PortSide, index = 0): PortDefinition => ({
+  id: `${side}:fluid:${index}`,
+  side,
+  itemClassName: "*",
+  itemName: "Any fluid",
+  ratePerMinute: null,
+  form: "fluid",
+});
+
+const itemPort = (
+  side: PortSide,
+  itemClassName: string,
+  itemName: string,
+  ratePerMinute: number | null,
+  form: string,
+  index = 0,
+): PortDefinition => ({
+  id: `${side}:${itemClassName}:${index}`,
+  side,
+  itemClassName,
+  itemName,
+  ratePerMinute,
+  form,
+});
+
 const amountToPort = (
   amount: RecipeAmount,
   side: PortSide,
@@ -39,11 +71,19 @@ const amountToPort = (
 });
 
 export const getBuildingPorts = (building: Building): PortDefinition[] => {
-  if (building.type === "Storage") {
+  if (building.type === "Storage" || building.type === "Industrial Storage Container") {
     return [anyItemPort("input"), anyItemPort("output")];
   }
 
-  if (building.type === "Splitter") {
+  if (building.type === "Fluid Buffer" || building.type === "Industrial Fluid Buffer") {
+    return [anyFluidPort("input"), anyFluidPort("output")];
+  }
+
+  if (
+    building.type === "Splitter" ||
+    building.type === "Smart Splitter" ||
+    building.type === "Programmable Splitter"
+  ) {
     return [
       anyItemPort("input"),
       anyItemPort("output", 0),
@@ -52,7 +92,7 @@ export const getBuildingPorts = (building: Building): PortDefinition[] => {
     ];
   }
 
-  if (building.type === "Merger") {
+  if (building.type === "Merger" || building.type === "Priority Merger") {
     return [
       anyItemPort("input", 0),
       anyItemPort("input", 1),
@@ -61,7 +101,56 @@ export const getBuildingPorts = (building: Building): PortDefinition[] => {
     ];
   }
 
-  if (building.type === "Miner") {
+  if (building.type === "Pipeline Junction" || building.type === "Pipeline T-Junction") {
+    return [
+      anyFluidPort("input"),
+      anyFluidPort("output", 0),
+      anyFluidPort("output", 1),
+      anyFluidPort("output", 2),
+    ];
+  }
+
+  if (building.type === "Pipeline Pump Mk.1" || building.type === "Pipeline Pump Mk.2" || building.type === "Valve") {
+    return [anyFluidPort("input"), anyFluidPort("output")];
+  }
+
+  if (building.type === "Water Extractor") {
+    return [
+      itemPort("output", "Desc_Water_C", "Water", 120, "liquid"),
+    ];
+  }
+
+  if (building.type === "Oil Extractor") {
+    return [
+      itemPort(
+        "output",
+        "Desc_LiquidOil_C",
+        "Crude Oil",
+        getOilExtractorRate(building.extractionPurity),
+        "liquid",
+      ),
+    ];
+  }
+
+  if (building.type === "Resource Well Extractor") {
+    const resource = getWellResource(building.extractionItemClassName);
+
+    if (!resource) {
+      return [anyFluidPort("output")];
+    }
+
+    return [
+      itemPort(
+        "output",
+        resource.className,
+        resource.name,
+        getResourceWellRate(building.extractionPurity),
+        resource.form,
+      ),
+    ];
+  }
+
+  if (isMinerBuilding(building.type)) {
     const resource = getMineableResource(building.extractionItemClassName);
 
     if (!resource) {
@@ -74,7 +163,7 @@ export const getBuildingPorts = (building: Building): PortDefinition[] => {
         side: "output",
         itemClassName: resource.className,
         itemName: resource.name,
-        ratePerMinute: getMinerRate(building.extractionPurity),
+        ratePerMinute: getMinerRate(building.extractionPurity, building.type),
         form: resource.form,
       },
     ];
@@ -151,6 +240,7 @@ export const formatRate = (ratePerMinute: number | null, form: string) => {
     return "rate set by belt";
   }
 
-  const unit = form === "liquid" || form === "gas" ? " m3/min" : "/min";
+  const unit =
+    form === "liquid" || form === "gas" || form === "fluid" ? " m3/min" : "/min";
   return `${rateFormatter.format(ratePerMinute)}${unit}`;
 };

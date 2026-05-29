@@ -1,17 +1,24 @@
 import { nanoid } from "nanoid";
 import { create } from "zustand";
 import {
+  BUILDING_TYPES,
   type Building,
   type BuildingConnection,
   type BuildingType,
   type ConnectionEndpoint,
   GRID_SIZE,
 } from "../types";
+import { isMinerBuilding } from "../miningData";
 
 const STORAGE_KEY = "satis-planner-design";
 
 const buildingDefaults: Record<BuildingType, Pick<Building, "width" | "height">> = {
   Miner: { width: 96, height: 64 },
+  "Miner Mk.2": { width: 112, height: 72 },
+  "Miner Mk.3": { width: 128, height: 80 },
+  "Water Extractor": { width: 128, height: 128 },
+  "Oil Extractor": { width: 128, height: 128 },
+  "Resource Well Extractor": { width: 112, height: 96 },
   Smelter: { width: 96, height: 96 },
   Constructor: { width: 128, height: 96 },
   Assembler: { width: 144, height: 112 },
@@ -23,10 +30,20 @@ const buildingDefaults: Record<BuildingType, Pick<Building, "width" | "height">>
   "Particle Accelerator": { width: 192, height: 160 },
   Converter: { width: 144, height: 112 },
   "Quantum Encoder": { width: 192, height: 160 },
-  "Nuclear Power Plant": { width: 192, height: 160 },
   Splitter: { width: 80, height: 80 },
+  "Smart Splitter": { width: 80, height: 80 },
+  "Programmable Splitter": { width: 80, height: 80 },
   Merger: { width: 80, height: 80 },
+  "Priority Merger": { width: 80, height: 80 },
+  "Pipeline Junction": { width: 80, height: 80 },
+  "Pipeline T-Junction": { width: 80, height: 80 },
+  "Pipeline Pump Mk.1": { width: 96, height: 64 },
+  "Pipeline Pump Mk.2": { width: 96, height: 64 },
+  Valve: { width: 80, height: 64 },
   Storage: { width: 96, height: 128 },
+  "Industrial Storage Container": { width: 128, height: 160 },
+  "Fluid Buffer": { width: 96, height: 128 },
+  "Industrial Fluid Buffer": { width: 144, height: 160 },
 };
 
 export type SavedDesign = {
@@ -76,6 +93,12 @@ type FactoryState = {
 
 const snap = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
 const PASTE_OFFSET = GRID_SIZE * 2;
+const activeBuildingTypes = new Set<string>(BUILDING_TYPES);
+const isFluidForm = (form?: string) =>
+  form === "fluid" || form === "liquid" || form === "gas";
+
+const portFormsCompatible = (first?: string, second?: string) =>
+  !first || !second || first === second || (isFluidForm(first) && isFluidForm(second));
 
 const endpointsMatch = (
   first: ConnectionEndpoint,
@@ -106,12 +129,37 @@ const normalizeDesign = (design: unknown): SavedDesign | null => {
     return null;
   }
 
+  const buildings = candidate.buildings.filter(
+    (building): building is Building =>
+      Boolean(
+        building &&
+          typeof building === "object" &&
+          "id" in building &&
+          "type" in building &&
+          activeBuildingTypes.has(String(building.type)),
+      ),
+  );
+  const buildingIds = new Set(buildings.map((building) => building.id));
+  const connections = Array.isArray(candidate.connections)
+    ? candidate.connections.filter(
+        (connection): connection is BuildingConnection =>
+          Boolean(
+            connection &&
+              typeof connection === "object" &&
+              "from" in connection &&
+              "to" in connection &&
+              buildingIds.has(connection.from.buildingId) &&
+              buildingIds.has(connection.to.buildingId),
+          ),
+      )
+    : [];
+
   return {
     version: 1,
     exportedAt:
       typeof candidate.exportedAt === "string" ? candidate.exportedAt : undefined,
-    buildings: candidate.buildings,
-    connections: Array.isArray(candidate.connections) ? candidate.connections : [],
+    buildings,
+    connections,
   };
 };
 
@@ -183,8 +231,18 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       x: snap(x),
       y: snap(y),
       recipeClassName: null,
-      extractionItemClassName: null,
-      extractionPurity: type === "Miner" ? "Normal" : undefined,
+      extractionItemClassName:
+        type === "Oil Extractor"
+          ? "Desc_LiquidOil_C"
+          : type === "Resource Well Extractor"
+            ? "Desc_NitrogenGas_C"
+            : null,
+      extractionPurity:
+        isMinerBuilding(type) ||
+        type === "Oil Extractor" ||
+        type === "Resource Well Extractor"
+          ? "Normal"
+          : undefined,
       ...buildingDefaults[type],
     };
 
@@ -256,8 +314,9 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       endpoint.itemClassName === "*" ||
       pendingConnection.itemClassName === "*" ||
       pendingConnection.itemClassName === endpoint.itemClassName;
+    const formMatches = portFormsCompatible(endpoint.form, pendingConnection.form);
 
-    if (!itemMatches) {
+    if (!itemMatches || !formMatches) {
       set({ pendingConnection: null });
       return;
     }

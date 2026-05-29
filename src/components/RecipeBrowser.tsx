@@ -1,19 +1,16 @@
 import { memo, useMemo, useState } from "react";
 import {
   datasetSummary,
+  factoryRecipes,
   getRecipesForPlacedBuilding,
   recipeExactNameMatchesQuery,
   recipeGeneralMatchesQuery,
   recipeProducesQuery,
-  satisfactoryRecipes,
   type RecipeAmount,
-  type RecipeCategory,
   type SatisfactoryRecipe,
 } from "../data/satisfactoryData";
 import { formatRate } from "../factoryPorts";
-import type { BuildingType } from "../types";
-
-type RecipeFilter = "All" | RecipeCategory;
+import { BUILDING_TYPES, type BuildingType } from "../types";
 
 type RecipeBrowserProps = {
   selectedBuildingType: BuildingType | null;
@@ -21,13 +18,6 @@ type RecipeBrowserProps = {
   onRecipeSelect?: (recipeClassName: string) => void;
 };
 
-const filters: RecipeFilter[] = [
-  "All",
-  "Factory",
-  "Manual",
-  "Build Gun",
-  "Customizer",
-];
 const RECIPE_RESULT_LIMIT = 30;
 
 export function RecipeBrowser({
@@ -36,7 +26,6 @@ export function RecipeBrowser({
   onRecipeSelect,
 }: RecipeBrowserProps) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<RecipeFilter>("All");
   const normalizedQuery = query.trim().toLowerCase();
 
   const selectedBuildingRecipes = useMemo(
@@ -48,15 +37,11 @@ export function RecipeBrowser({
   );
 
   const matchingRecipes = useMemo(() => {
-    const categoryMatches = satisfactoryRecipes.filter(
-      (recipe) => filter === "All" || recipe.category === filter,
-    );
-
     if (normalizedQuery.length === 0) {
-      return categoryMatches;
+      return factoryRecipes;
     }
 
-    const exactRecipeMatches = categoryMatches.filter((recipe) =>
+    const exactRecipeMatches = factoryRecipes.filter((recipe) =>
       recipeExactNameMatchesQuery(recipe, normalizedQuery),
     );
 
@@ -64,7 +49,7 @@ export function RecipeBrowser({
       return exactRecipeMatches;
     }
 
-    const producedItemMatches = categoryMatches.filter((recipe) =>
+    const producedItemMatches = factoryRecipes.filter((recipe) =>
       recipeProducesQuery(recipe, normalizedQuery),
     );
 
@@ -72,10 +57,10 @@ export function RecipeBrowser({
       return producedItemMatches;
     }
 
-    return categoryMatches.filter((recipe) =>
+    return factoryRecipes.filter((recipe) =>
       recipeGeneralMatchesQuery(recipe, normalizedQuery),
     );
-  }, [filter, normalizedQuery]);
+  }, [normalizedQuery]);
 
   const visibleRecipes = matchingRecipes.slice(0, RECIPE_RESULT_LIMIT);
 
@@ -87,8 +72,8 @@ export function RecipeBrowser({
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
           <SummaryStat label="Items" value={datasetSummary.itemCount} />
-          <SummaryStat label="Buildings" value={datasetSummary.buildingCount} />
-          <SummaryStat label="Recipes" value={datasetSummary.recipeCount} />
+          <SummaryStat label="Placeable" value={BUILDING_TYPES.length} />
+          <SummaryStat label="Recipes" value={datasetSummary.factoryRecipeCount} />
         </div>
       </div>
 
@@ -118,8 +103,7 @@ export function RecipeBrowser({
             </div>
           ) : (
             <p className="mt-3 text-sm leading-6 text-slate-500">
-              The parsed recipe data has no machine recipe rows for this placed
-              building. Search below for build costs, parts, and other recipes.
+              The parsed data has no factory recipe rows for this placed building.
             </p>
           )}
         </div>
@@ -130,26 +114,9 @@ export function RecipeBrowser({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search recipes that make an item"
+          placeholder="Search factory recipes that make an item"
           className="h-10 w-full rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-amber-400"
         />
-
-        <div className="grid grid-cols-2 gap-2">
-          {filters.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setFilter(option)}
-              className={`h-9 rounded-md border text-xs font-medium transition ${
-                filter === option
-                  ? "border-amber-400 bg-amber-400 text-slate-950"
-                  : "border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200"
-              }`}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
 
         <p className="text-xs text-slate-500">
           Showing {visibleRecipes.length} of {matchingRecipes.length} matching
@@ -224,7 +191,6 @@ const RecipeCard = memo(function RecipeCard({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {recipe.alternate ? <Badge>Alt</Badge> : null}
-          <Badge>{recipe.category}</Badge>
         </div>
       </div>
 

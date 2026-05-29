@@ -2,6 +2,11 @@ export const GRID_SIZE = 32;
 
 export const BUILDING_TYPES = [
   "Miner",
+  "Miner Mk.2",
+  "Miner Mk.3",
+  "Water Extractor",
+  "Oil Extractor",
+  "Resource Well Extractor",
   "Smelter",
   "Constructor",
   "Assembler",
@@ -13,10 +18,20 @@ export const BUILDING_TYPES = [
   "Particle Accelerator",
   "Converter",
   "Quantum Encoder",
-  "Nuclear Power Plant",
   "Splitter",
+  "Smart Splitter",
+  "Programmable Splitter",
   "Merger",
+  "Priority Merger",
+  "Pipeline Junction",
+  "Pipeline T-Junction",
+  "Pipeline Pump Mk.1",
+  "Pipeline Pump Mk.2",
+  "Valve",
   "Storage",
+  "Industrial Storage Container",
+  "Fluid Buffer",
+  "Industrial Fluid Buffer",
 ] as const;
 
 export type BuildingType = (typeof BUILDING_TYPES)[number];
@@ -41,6 +56,7 @@ export type ConnectionEndpoint = {
   buildingId: string;
   itemClassName: string;
   portId?: string;
+  form?: string;
 };
 
 export type BuildingConnection = {

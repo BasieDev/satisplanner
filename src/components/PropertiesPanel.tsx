@@ -3,10 +3,15 @@ import { buildingToolByType } from "../buildingCatalog";
 import { getRecipeByClassName, getRecipesForPlacedBuilding } from "../data/satisfactoryData";
 import { formatRate, getBuildingPorts } from "../factoryPorts";
 import {
+  getOilExtractorRate,
+  getResourceWellRate,
+  getWellResource,
   getMineableResource,
   getMinerRate,
+  isMinerBuilding,
   mineableResources,
   resourcePurities,
+  wellResources,
 } from "../miningData";
 import { useFactoryStore } from "../store/factoryStore";
 import { RecipeBrowser } from "./RecipeBrowser";
@@ -22,14 +27,18 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
   const assignedRecipe = getRecipeByClassName(building?.recipeClassName);
   const ports = building ? getBuildingPorts(building) : [];
   const minedResource = getMineableResource(building?.extractionItemClassName);
+  const wellResource = getWellResource(building?.extractionItemClassName);
   const buildingLabel = building
     ? buildingToolByType.get(building.type)?.label ?? building.type
     : "";
   const inputPorts = ports.filter((port) => port.side === "input");
   const outputPorts = ports.filter((port) => port.side === "output");
   const logisticsDescription = building
-    ? getLogisticsDescription(building.type)
+    ? getUtilityDescription(building.type)
     : null;
+  const isMiner = building ? isMinerBuilding(building.type) : false;
+  const isOilExtractor = building?.type === "Oil Extractor";
+  const isResourceWellExtractor = building?.type === "Resource Well Extractor";
 
   return (
     <aside className="h-full overflow-y-auto border-l border-slate-800 bg-slate-900">
@@ -64,7 +73,7 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
             </p>
           </section>
 
-          {building.type === "Miner" ? (
+          {isMiner ? (
             <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
               <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
                 Mined resource
@@ -107,10 +116,87 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
               <p className="mt-3 text-xs text-slate-500">
                 {minedResource
                   ? `${minedResource.name}: ${formatRate(
-                      getMinerRate(building.extractionPurity),
+                      getMinerRate(building.extractionPurity, building.type),
                       minedResource.form,
                     )}`
                   : "Choose what this miner is placed on."}
+              </p>
+            </section>
+          ) : isOilExtractor ? (
+            <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Resource node
+              </p>
+              <select
+                value={building.extractionPurity ?? "Normal"}
+                onChange={(event) =>
+                  setMinerResource(
+                    building.id,
+                    "Desc_LiquidOil_C",
+                    event.target.value as Building["extractionPurity"],
+                  )
+                }
+                className="mt-2 h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-amber-400"
+              >
+                {resourcePurities.map((purity) => (
+                  <option key={purity} value={purity}>
+                    {purity} oil node
+                  </option>
+                ))}
+              </select>
+              <p className="mt-3 text-xs text-slate-500">
+                Crude Oil: {formatRate(
+                  getOilExtractorRate(building.extractionPurity),
+                  "liquid",
+                )}
+              </p>
+            </section>
+          ) : isResourceWellExtractor ? (
+            <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Resource well output
+              </p>
+              <select
+                value={building.extractionItemClassName ?? ""}
+                onChange={(event) =>
+                  setMinerResource(
+                    building.id,
+                    event.target.value || null,
+                    building.extractionPurity ?? "Normal",
+                  )
+                }
+                className="mt-2 h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-amber-400"
+              >
+                {wellResources.map((resource) => (
+                  <option key={resource.className} value={resource.className}>
+                    {resource.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={building.extractionPurity ?? "Normal"}
+                onChange={(event) =>
+                  setMinerResource(
+                    building.id,
+                    building.extractionItemClassName ?? "Desc_NitrogenGas_C",
+                    event.target.value as Building["extractionPurity"],
+                  )
+                }
+                className="mt-2 h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-amber-400"
+              >
+                {resourcePurities.map((purity) => (
+                  <option key={purity} value={purity}>
+                    {purity} well node
+                  </option>
+                ))}
+              </select>
+              <p className="mt-3 text-xs text-slate-500">
+                {wellResource
+                  ? `${wellResource.name}: ${formatRate(
+                      getResourceWellRate(building.extractionPurity),
+                      wellResource.form,
+                    )}`
+                  : "Choose what this well extractor outputs."}
               </p>
             </section>
           ) : logisticsDescription ? (
@@ -174,19 +260,23 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
             </section>
           ) : (
             <div className="rounded-md border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-500">
-              {building.type === "Miner"
+              {isMiner
                 ? "Choose a mined resource to show the miner output port."
+                : isResourceWellExtractor
+                  ? "Choose a well resource to show the fluid output port."
                 : "Assign a recipe to show the machine input and output ports."}
             </div>
           )}
 
           <RecipeBrowser
             selectedBuildingType={
-              building.type === "Miner" || logisticsDescription ? null : building.type
+              isMiner || isOilExtractor || isResourceWellExtractor || logisticsDescription
+                ? null
+                : building.type
             }
             selectedRecipeClassName={building.recipeClassName}
             onRecipeSelect={
-              building.type === "Miner" || logisticsDescription
+              isMiner || isOilExtractor || isResourceWellExtractor || logisticsDescription
                 ? undefined
                 : (recipeClassName) =>
                     setBuildingRecipe(building.id, recipeClassName)
@@ -206,17 +296,39 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
   );
 }
 
-function getLogisticsDescription(type: Building["type"]) {
-  if (type === "Splitter") {
+function getUtilityDescription(type: Building["type"]) {
+  if (
+    type === "Splitter" ||
+    type === "Smart Splitter" ||
+    type === "Programmable Splitter"
+  ) {
     return "1 belt input, 3 belt outputs. Connected outputs share the incoming item rate.";
   }
 
-  if (type === "Merger") {
+  if (type === "Merger" || type === "Priority Merger") {
     return "3 belt inputs, 1 belt output. Incoming item rates combine on the output.";
   }
 
-  if (type === "Storage") {
+  if (type === "Storage" || type === "Industrial Storage Container") {
     return "1 generic belt input, 1 generic belt output.";
+  }
+
+  if (type === "Fluid Buffer" || type === "Industrial Fluid Buffer") {
+    return "1 generic fluid input, 1 generic fluid output.";
+  }
+
+  if (type === "Water Extractor") {
+    return "Extracts 120 m3/min Water.";
+  }
+
+  if (
+    type === "Pipeline Junction" ||
+    type === "Pipeline T-Junction" ||
+    type === "Pipeline Pump Mk.1" ||
+    type === "Pipeline Pump Mk.2" ||
+    type === "Valve"
+  ) {
+    return "Pipeline flow building. Fluid and gas ports can connect to matching recipes and generic pipe ports.";
   }
 
   return null;

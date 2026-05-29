@@ -33,6 +33,26 @@ const palette: Record<BuildingType, { fill: string; stroke: string }> = {
     fill: "#b45309",
     stroke: "#f59e0b",
   },
+  "Miner Mk.2": {
+    fill: "#92400e",
+    stroke: "#fbbf24",
+  },
+  "Miner Mk.3": {
+    fill: "#78350f",
+    stroke: "#fde68a",
+  },
+  "Water Extractor": {
+    fill: "#0e7490",
+    stroke: "#67e8f9",
+  },
+  "Oil Extractor": {
+    fill: "#27272a",
+    stroke: "#a3a3a3",
+  },
+  "Resource Well Extractor": {
+    fill: "#115e59",
+    stroke: "#99f6e4",
+  },
   Smelter: {
     fill: "#7c2d12",
     stroke: "#fb923c",
@@ -77,21 +97,61 @@ const palette: Record<BuildingType, { fill: string; stroke: string }> = {
     fill: "#312e81",
     stroke: "#a5b4fc",
   },
-  "Nuclear Power Plant": {
-    fill: "#14532d",
-    stroke: "#4ade80",
-  },
   Splitter: {
     fill: "#57534e",
     stroke: "#d6d3d1",
+  },
+  "Smart Splitter": {
+    fill: "#57534e",
+    stroke: "#38bdf8",
+  },
+  "Programmable Splitter": {
+    fill: "#57534e",
+    stroke: "#c084fc",
   },
   Merger: {
     fill: "#44403c",
     stroke: "#fbbf24",
   },
+  "Priority Merger": {
+    fill: "#44403c",
+    stroke: "#fb7185",
+  },
+  "Pipeline Junction": {
+    fill: "#164e63",
+    stroke: "#22d3ee",
+  },
+  "Pipeline T-Junction": {
+    fill: "#164e63",
+    stroke: "#67e8f9",
+  },
+  "Pipeline Pump Mk.1": {
+    fill: "#155e75",
+    stroke: "#38bdf8",
+  },
+  "Pipeline Pump Mk.2": {
+    fill: "#155e75",
+    stroke: "#a5f3fc",
+  },
+  Valve: {
+    fill: "#164e63",
+    stroke: "#fbbf24",
+  },
   Storage: {
     fill: "#334155",
     stroke: "#94a3b8",
+  },
+  "Industrial Storage Container": {
+    fill: "#1e293b",
+    stroke: "#cbd5e1",
+  },
+  "Fluid Buffer": {
+    fill: "#0f4c5c",
+    stroke: "#67e8f9",
+  },
+  "Industrial Fluid Buffer": {
+    fill: "#083344",
+    stroke: "#22d3ee",
   },
 };
 
@@ -99,10 +159,14 @@ const snap = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
 const WORLD_SIZE = 131_072;
 const PAN_THRESHOLD = 5;
 const RENDER_MARGIN = 768;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 2.5;
+const ZOOM_STEP = 1.12;
 
 type Camera = {
   x: number;
   y: number;
+  zoom: number;
 };
 
 type BeltDraft = {
@@ -121,14 +185,19 @@ type PanStart = {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-const clampCamera = (camera: Camera, viewport: { width: number; height: number }) => ({
-  x: clamp(camera.x, Math.min(0, viewport.width - WORLD_SIZE), 0),
-  y: clamp(camera.y, Math.min(0, viewport.height - WORLD_SIZE), 0),
-});
+const clampCamera = (camera: Camera, viewport: { width: number; height: number }) => {
+  const zoom = clamp(camera.zoom, MIN_ZOOM, MAX_ZOOM);
+
+  return {
+    zoom,
+    x: clamp(camera.x, Math.min(0, viewport.width - WORLD_SIZE * zoom), 0),
+    y: clamp(camera.y, Math.min(0, viewport.height - WORLD_SIZE * zoom), 0),
+  };
+};
 
 const screenToWorld = (point: { x: number; y: number }, camera: Camera) => ({
-  x: point.x - camera.x,
-  y: point.y - camera.y,
+  x: (point.x - camera.x) / camera.zoom,
+  y: (point.y - camera.y) / camera.zoom,
 });
 
 const rectsIntersect = (
@@ -139,6 +208,18 @@ const rectsIntersect = (
   first.right >= second.left &&
   first.top <= second.bottom &&
   first.bottom >= second.top;
+
+const isFluidForm = (form?: string) =>
+  form === "fluid" || form === "liquid" || form === "gas";
+
+const portFormsCompatible = (first?: string, second?: string) =>
+  !first || !second || first === second || (isFluidForm(first) && isFluidForm(second));
+
+const connectionStroke = (form?: string) =>
+  isFluidForm(form) ? "#22d3ee" : "#f59e0b";
+
+const connectionLabelFill = (form?: string) =>
+  isFluidForm(form) ? "#cffafe" : "#fde68a";
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -182,7 +263,7 @@ export function FactoryCanvas() {
   const cancelConnection = useFactoryStore((state) => state.cancelConnection);
   const removeConnection = useFactoryStore((state) => state.removeConnection);
   const [beltDraft, setBeltDraft] = useState<BeltDraft | null>(null);
-  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0 });
+  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef<PanStart | null>(null);
   const pendingCameraRef = useRef<Camera | null>(null);
@@ -195,10 +276,12 @@ export function FactoryCanvas() {
   );
   const primaryIssue = factoryIssues[0] ?? null;
 
-  const visibleLeft = Math.max(0, -camera.x);
-  const visibleTop = Math.max(0, -camera.y);
-  const visibleRight = Math.min(WORLD_SIZE, -camera.x + size.width);
-  const visibleBottom = Math.min(WORLD_SIZE, -camera.y + size.height);
+  const visibleLeft = clamp(-camera.x / camera.zoom, 0, WORLD_SIZE);
+  const visibleTop = clamp(-camera.y / camera.zoom, 0, WORLD_SIZE);
+  const visibleRight = clamp((-camera.x + size.width) / camera.zoom, 0, WORLD_SIZE);
+  const visibleBottom = clamp((-camera.y + size.height) / camera.zoom, 0, WORLD_SIZE);
+  const visibleWidth = visibleRight - visibleLeft;
+  const visibleHeight = visibleBottom - visibleTop;
   const firstGridX = Math.floor(visibleLeft / GRID_SIZE) * GRID_SIZE;
   const firstGridY = Math.floor(visibleTop / GRID_SIZE) * GRID_SIZE;
   const renderBounds = {
@@ -215,6 +298,12 @@ export function FactoryCanvas() {
       bottom: building.y + building.height,
     }),
   );
+  const layerTransform = {
+    x: camera.x,
+    y: camera.y,
+    scaleX: camera.zoom,
+    scaleY: camera.zoom,
+  };
   const { verticalLines, horizontalLines } = useMemo(() => {
     const nextVerticalLines = [];
     const nextHorizontalLines = [];
@@ -293,6 +382,29 @@ export function FactoryCanvas() {
     });
   };
 
+  const zoomAtScreenPoint = (
+    point: { x: number; y: number },
+    nextZoom: number,
+  ) => {
+    setCamera((currentCamera) => {
+      const zoom = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+      const worldPoint = screenToWorld(point, currentCamera);
+
+      return clampCamera(
+        {
+          x: point.x - worldPoint.x * zoom,
+          y: point.y - worldPoint.y * zoom,
+          zoom,
+        },
+        size,
+      );
+    });
+  };
+
+  const zoomAtCenter = (nextZoom: number) => {
+    zoomAtScreenPoint({ x: size.width / 2, y: size.height / 2 }, nextZoom);
+  };
+
   const handleStageClick = (event: Konva.KonvaEventObject<MouseEvent>) => {
     if (suppressNextClickRef.current) {
       suppressNextClickRef.current = false;
@@ -319,6 +431,20 @@ export function FactoryCanvas() {
     }
 
     setSelectedBuilding(null);
+  };
+
+  const handleStageWheel = (event: Konva.KonvaEventObject<WheelEvent>) => {
+    event.evt.preventDefault();
+
+    const stage = event.target.getStage();
+    const pointer = stage?.getPointerPosition() ?? {
+      x: size.width / 2,
+      y: size.height / 2,
+    };
+    const direction = event.evt.deltaY > 0 ? -1 : 1;
+    const scaleFactor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+
+    zoomAtScreenPoint(pointer, camera.zoom * scaleFactor);
   };
 
   const handleStageMouseDown = (event: Konva.KonvaEventObject<MouseEvent>) => {
@@ -388,6 +514,7 @@ export function FactoryCanvas() {
             {
               x: panStart.camera.x + deltaX,
               y: panStart.camera.y + deltaY,
+              zoom: panStart.camera.zoom,
             },
             size,
           ),
@@ -442,11 +569,15 @@ export function FactoryCanvas() {
 
     event.preventDefault();
     const bounds = ref.current.getBoundingClientRect();
-    placeBuilding(
-      buildingType,
-      event.clientX - bounds.left - camera.x,
-      event.clientY - bounds.top - camera.y,
+    const worldPointer = screenToWorld(
+      {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      },
+      camera,
     );
+
+    placeBuilding(buildingType, worldPointer.x, worldPointer.y);
   };
 
   const handlePortClick = (
@@ -467,6 +598,7 @@ export function FactoryCanvas() {
         buildingId,
         itemClassName: port.itemClassName,
         portId: port.id,
+        form: port.form,
       });
       return;
     }
@@ -476,6 +608,7 @@ export function FactoryCanvas() {
         buildingId,
         itemClassName: port.itemClassName,
         portId: port.id,
+        form: port.form,
       });
       setSelectedBuilding(buildingId);
     }
@@ -499,6 +632,7 @@ export function FactoryCanvas() {
       buildingId,
       itemClassName: port.itemClassName,
       portId: port.id,
+      form: port.form,
     };
 
     setSelectedBuilding(buildingId);
@@ -526,6 +660,7 @@ export function FactoryCanvas() {
       buildingId,
       itemClassName: port.itemClassName,
       portId: port.id,
+      form: port.form,
     });
     setSelectedBuilding(buildingId);
     setBeltDraft(null);
@@ -542,12 +677,18 @@ export function FactoryCanvas() {
     >
       <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-md border border-slate-800 bg-slate-900/90 px-3 py-2 text-sm text-slate-300 shadow-lg">
         {selectedTool
-          ? `${selectedTool}: click to place, drag empty grid to pan`
-          : "Drag empty grid to pan. Select or drag placed machines."}
+          ? `${selectedTool}: click to place, wheel to zoom, drag empty grid to pan`
+          : "Wheel to zoom. Drag empty grid to pan. Select or drag placed machines."}
       </div>
       <div className="pointer-events-none absolute bottom-4 left-4 z-10 rounded-md border border-slate-800 bg-slate-900/90 px-3 py-2 font-mono text-xs text-slate-400 shadow-lg">
         World {Math.round(visibleLeft)}:{Math.round(visibleTop)} / {WORLD_SIZE}px
+        {"  "}
+        {Math.round(camera.zoom * 100)}%
       </div>
+      <ViewportControls
+        zoom={camera.zoom}
+        onZoomChange={zoomAtCenter}
+      />
       {primaryIssue ? (
         <div className="pointer-events-none absolute left-1/2 top-4 z-20 w-[min(720px,calc(100%-2rem))] -translate-x-1/2 rounded-md border border-amber-300 bg-amber-300 px-4 py-3 text-sm text-slate-950 shadow-xl">
           <div className="flex items-start justify-between gap-4">
@@ -572,21 +713,22 @@ export function FactoryCanvas() {
         onMouseMove={handleStageMouseMove}
         onMouseUp={handleStageMouseUp}
         onMouseLeave={handleStageMouseLeave}
+        onWheel={handleStageWheel}
       >
-        <Layer x={camera.x} y={camera.y}>
+        <Layer {...layerTransform}>
           <Rect
             name="canvas-background"
             x={visibleLeft}
             y={visibleTop}
-            width={size.width}
-            height={size.height}
+            width={visibleWidth}
+            height={visibleHeight}
             fill="#0f172a"
           />
           {verticalLines}
           {horizontalLines}
         </Layer>
 
-        <Layer x={camera.x} y={camera.y}>
+        <Layer {...layerTransform}>
           {connections.map((connection) => {
             const from = getPortAtEndpoint(
               buildings,
@@ -640,7 +782,7 @@ export function FactoryCanvas() {
               >
                 <Line
                   points={points}
-                  stroke="#f59e0b"
+                  stroke={connectionStroke(from.form)}
                   strokeWidth={4}
                   lineCap="round"
                   lineJoin="round"
@@ -654,7 +796,7 @@ export function FactoryCanvas() {
                   align="center"
                   verticalAlign="middle"
                   text={`${from.itemName} ${formatRate(from.ratePerMinute, from.form)}`}
-                  fill="#fde68a"
+                  fill={connectionLabelFill(from.form)}
                   fontSize={11}
                   listening={false}
                 />
@@ -673,7 +815,7 @@ export function FactoryCanvas() {
                 beltDraft.pointer.x,
                 beltDraft.pointer.y,
               ]}
-              stroke="#facc15"
+              stroke={connectionStroke(beltDraft.from.form)}
               strokeWidth={3}
               dash={[8, 8]}
               lineCap="round"
@@ -683,7 +825,7 @@ export function FactoryCanvas() {
           ) : null}
         </Layer>
 
-        <Layer x={camera.x} y={camera.y}>
+        <Layer {...layerTransform}>
           {visibleBuildings.map((building) => {
             const colors = palette[building.type];
             const isSelected = selectedBuildingIds.includes(building.id);
@@ -707,7 +849,7 @@ export function FactoryCanvas() {
           })}
         </Layer>
 
-        <Layer x={camera.x} y={camera.y}>
+        <Layer {...layerTransform}>
           {visibleBuildings.flatMap((building) =>
             getPositionedPorts(building).map((port) => {
               const isPending =
@@ -720,6 +862,7 @@ export function FactoryCanvas() {
                 pendingConnection !== null &&
                 port.side === "input" &&
                 pendingConnection.buildingId !== building.id &&
+                portFormsCompatible(pendingConnection.form, port.form) &&
                 (port.itemClassName === "*" ||
                   pendingConnection.itemClassName === "*" ||
                   pendingConnection.itemClassName === port.itemClassName);
@@ -851,20 +994,99 @@ const GroupBuilding = memo(function GroupBuilding({
 });
 
 const getBuildingSubtitle = (type: BuildingType) => {
-  if (type === "Storage") {
+  if (type === "Storage" || type === "Industrial Storage Container") {
     return "buffer";
   }
 
-  if (type === "Splitter") {
+  if (
+    type === "Splitter" ||
+    type === "Smart Splitter" ||
+    type === "Programmable Splitter"
+  ) {
     return "1 in / 3 out";
   }
 
-  if (type === "Merger") {
+  if (type === "Merger" || type === "Priority Merger") {
     return "3 in / 1 out";
+  }
+
+  if (type === "Water Extractor") {
+    return "water output";
+  }
+
+  if (type === "Oil Extractor") {
+    return "crude oil";
+  }
+
+  if (type === "Resource Well Extractor") {
+    return "well output";
+  }
+
+  if (
+    type === "Fluid Buffer" ||
+    type === "Industrial Fluid Buffer" ||
+    type.includes("Pipeline") ||
+    type === "Valve"
+  ) {
+    return "fluid";
   }
 
   return "assign recipe";
 };
+
+type ViewportControlsProps = {
+  zoom: number;
+  onZoomChange: (zoom: number) => void;
+};
+
+function ViewportControls({
+  zoom,
+  onZoomChange,
+}: ViewportControlsProps) {
+  const zoomPercent = Math.round(zoom * 100);
+
+  return (
+    <div
+      className="absolute bottom-4 right-4 z-20 w-72 rounded-md border border-slate-800 bg-slate-900/95 p-3 text-xs text-slate-300 shadow-xl"
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Zoom out"
+          onClick={() => onZoomChange(zoom / ZOOM_STEP)}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-base font-semibold text-slate-200 transition hover:border-slate-500"
+        >
+          -
+        </button>
+        <input
+          aria-label="Zoom"
+          type="range"
+          min={MIN_ZOOM * 100}
+          max={MAX_ZOOM * 100}
+          step={5}
+          value={zoomPercent}
+          onChange={(event) => onZoomChange(Number(event.target.value) / 100)}
+          className="min-w-0 flex-1 accent-amber-400"
+        />
+        <button
+          type="button"
+          aria-label="Zoom in"
+          onClick={() => onZoomChange(zoom * ZOOM_STEP)}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-base font-semibold text-slate-200 transition hover:border-slate-500"
+        >
+          +
+        </button>
+        <span className="w-12 text-right font-mono text-slate-400">
+          {zoomPercent}%
+        </span>
+      </div>
+
+    </div>
+  );
+}
 
 type PortNodeProps = {
   buildingId: string;
@@ -904,7 +1126,13 @@ function PortNode({
   const labelX = isOutput ? port.x + 12 : port.x - 126;
   const labelAlign = isOutput ? "left" : "right";
   const fill = isPending ? "#facc15" : canFinish ? "#22c55e" : "#0f172a";
-  const stroke = isOutput ? "#f59e0b" : "#38bdf8";
+  const stroke = isFluidForm(port.form)
+    ? isOutput
+      ? "#22d3ee"
+      : "#38bdf8"
+    : isOutput
+      ? "#f59e0b"
+      : "#38bdf8";
 
   return (
     <Group
@@ -932,7 +1160,7 @@ function PortNode({
         align={labelAlign}
         verticalAlign="middle"
         text={`${port.itemName} ${formatRate(port.ratePerMinute, port.form)}`}
-        fill="#cbd5e1"
+        fill={connectionLabelFill(port.form)}
         fontSize={10}
         listening={false}
       />

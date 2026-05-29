@@ -1,10 +1,12 @@
 import { buildingToolByType } from "./buildingCatalog";
+import { getRecipesForPlacedBuilding } from "./data/satisfactoryData";
 import {
   formatRate,
   getBuildingPorts,
   getPortAtEndpoint,
   type PortDefinition,
 } from "./factoryPorts";
+import { isMinerBuilding } from "./miningData";
 import type { Building, BuildingConnection, PortSide } from "./types";
 
 export type FactoryIssue = {
@@ -21,7 +23,8 @@ const endpointKey = (
 ) => `${buildingId}:${side}:${portId ?? itemClassName}`;
 
 const doesBuildingNeedRecipe = (building: Building) =>
-  !["Miner", "Storage", "Splitter", "Merger"].includes(building.type);
+  !isMinerBuilding(building.type) &&
+  getRecipesForPlacedBuilding(building.type).length > 0;
 
 const buildingLabel = (building: Building) =>
   buildingToolByType.get(building.type)?.label ?? building.type;
@@ -58,7 +61,31 @@ const setKnownRate = (
 };
 
 const isRatePassThroughBuilding = (building: Building) =>
-  ["Splitter", "Merger", "Storage"].includes(building.type);
+  [
+    "Splitter",
+    "Smart Splitter",
+    "Programmable Splitter",
+    "Merger",
+    "Priority Merger",
+    "Storage",
+    "Industrial Storage Container",
+    "Fluid Buffer",
+    "Industrial Fluid Buffer",
+    "Pipeline Junction",
+    "Pipeline T-Junction",
+    "Pipeline Pump Mk.1",
+    "Pipeline Pump Mk.2",
+    "Valve",
+  ].includes(building.type);
+
+const isSplitterLikeBuilding = (building: Building) =>
+  [
+    "Splitter",
+    "Smart Splitter",
+    "Programmable Splitter",
+    "Pipeline Junction",
+    "Pipeline T-Junction",
+  ].includes(building.type);
 
 export const analyzeFactory = (
   buildings: Building[],
@@ -75,7 +102,7 @@ export const analyzeFactory = (
   for (const building of buildings) {
     const ports = getBuildingPorts(building);
 
-    if (building.type === "Miner" && !building.extractionItemClassName) {
+    if (isMinerBuilding(building.type) && !building.extractionItemClassName) {
       issues.push({
         id: `miner-resource:${building.id}`,
         title: "Miner has no resource",
@@ -131,8 +158,8 @@ export const analyzeFactory = (
     if (!fromBuilding || !toBuilding || !fromPort || !toPort) {
       issues.push({
         id: `stale:${connection.id}`,
-        title: "Broken belt connection",
-        message: "A belt points to a missing or changed port. Delete and reconnect it.",
+        title: "Broken connection",
+        message: "A connection points to a missing or changed port. Delete and reconnect it.",
       });
       continue;
     }
@@ -197,10 +224,9 @@ export const analyzeFactory = (
         (total, rate) => total + (rate ?? 0),
         0,
       );
-      const outgoingRate =
-        building.type === "Splitter"
-          ? incomingRate / outgoingConnections.length
-          : incomingRate;
+      const outgoingRate = isSplitterLikeBuilding(building)
+        ? incomingRate / outgoingConnections.length
+        : incomingRate;
 
       for (const connection of outgoingConnections) {
         changed =
