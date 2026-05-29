@@ -29,9 +29,11 @@ const buildingDefaults: Record<BuildingType, Pick<Building, "width" | "height">>
   Storage: { width: 96, height: 128 },
 };
 
-type SavedDesign = {
+export type SavedDesign = {
+  version: 1;
+  exportedAt?: string;
   buildings: Building[];
-  connections?: BuildingConnection[];
+  connections: BuildingConnection[];
 };
 
 type FactoryState = {
@@ -56,6 +58,8 @@ type FactoryState = {
     purity?: Building["extractionPurity"],
   ) => void;
   deleteSelectedBuildings: () => void;
+  getDesignSnapshot: () => SavedDesign;
+  importDesign: (design: unknown) => boolean;
   clearDesign: () => void;
   saveDesign: () => void;
   loadDesign: () => void;
@@ -75,11 +79,41 @@ const endpointsMatch = (
 const readSavedDesign = (): SavedDesign | null => {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved ? (JSON.parse(saved) as SavedDesign) : null;
+    return saved ? normalizeDesign(JSON.parse(saved)) : null;
   } catch {
     return null;
   }
 };
+
+const normalizeDesign = (design: unknown): SavedDesign | null => {
+  if (!design || typeof design !== "object") {
+    return null;
+  }
+
+  const candidate = design as Partial<SavedDesign>;
+
+  if (!Array.isArray(candidate.buildings)) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    exportedAt:
+      typeof candidate.exportedAt === "string" ? candidate.exportedAt : undefined,
+    buildings: candidate.buildings,
+    connections: Array.isArray(candidate.connections) ? candidate.connections : [],
+  };
+};
+
+const createDesignSnapshot = (
+  buildings: Building[],
+  connections: BuildingConnection[],
+): SavedDesign => ({
+  version: 1,
+  exportedAt: new Date().toISOString(),
+  buildings,
+  connections,
+});
 
 export const useFactoryStore = create<FactoryState>((set, get) => ({
   buildings: readSavedDesign()?.buildings ?? [],
@@ -285,6 +319,29 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       };
     }),
 
+  getDesignSnapshot: () =>
+    createDesignSnapshot(get().buildings, get().connections),
+
+  importDesign: (design) => {
+    const normalizedDesign = normalizeDesign(design);
+
+    if (!normalizedDesign) {
+      return false;
+    }
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedDesign));
+    set({
+      buildings: normalizedDesign.buildings,
+      connections: normalizedDesign.connections,
+      selectedBuildingId: null,
+      selectedBuildingIds: [],
+      selectedTool: null,
+      pendingConnection: null,
+    });
+
+    return true;
+  },
+
   clearDesign: () => {
     window.localStorage.removeItem(STORAGE_KEY);
     set({
@@ -298,10 +355,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
   },
 
   saveDesign: () => {
-    const design: SavedDesign = {
-      buildings: get().buildings,
-      connections: get().connections,
-    };
+    const design = createDesignSnapshot(get().buildings, get().connections);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(design));
   },
 

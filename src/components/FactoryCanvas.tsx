@@ -95,6 +95,13 @@ const palette: Record<BuildingType, { fill: string; stroke: string }> = {
 };
 
 const snap = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE;
+const WORLD_SIZE = 131_072;
+const PAN_THRESHOLD = 5;
+
+type Camera = {
+  x: number;
+  y: number;
+};
 
 type BeltDraft = {
   from: ConnectionEndpoint;
@@ -102,6 +109,25 @@ type BeltDraft = {
   pointer: { x: number; y: number };
   hasMoved: boolean;
 };
+
+type PanStart = {
+  pointer: { x: number; y: number };
+  camera: Camera;
+  hasMoved: boolean;
+};
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const clampCamera = (camera: Camera, viewport: { width: number; height: number }) => ({
+  x: clamp(camera.x, Math.min(0, viewport.width - WORLD_SIZE), 0),
+  y: clamp(camera.y, Math.min(0, viewport.height - WORLD_SIZE), 0),
+});
+
+const screenToWorld = (point: { x: number; y: number }, camera: Camera) => ({
+  x: point.x - camera.x,
+  y: point.y - camera.y,
+});
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -145,6 +171,10 @@ export function FactoryCanvas() {
   const cancelConnection = useFactoryStore((state) => state.cancelConnection);
   const removeConnection = useFactoryStore((state) => state.removeConnection);
   const [beltDraft, setBeltDraft] = useState<BeltDraft | null>(null);
+  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<PanStart | null>(null);
+  const suppressNextClickRef = useRef(false);
   const factoryIssues = useMemo(
     () => analyzeFactory(buildings, connections),
     [buildings, connections],
@@ -153,36 +183,43 @@ export function FactoryCanvas() {
 
   const verticalLines = [];
   const horizontalLines = [];
+  const visibleLeft = Math.max(0, -camera.x);
+  const visibleTop = Math.max(0, -camera.y);
+  const visibleRight = Math.min(WORLD_SIZE, -camera.x + size.width);
+  const visibleBottom = Math.min(WORLD_SIZE, -camera.y + size.height);
+  const firstGridX = Math.floor(visibleLeft / GRID_SIZE) * GRID_SIZE;
+  const firstGridY = Math.floor(visibleTop / GRID_SIZE) * GRID_SIZE;
 
-  for (let x = 0; x <= size.width; x += GRID_SIZE) {
+  for (let x = firstGridX; x <= visibleRight; x += GRID_SIZE) {
     verticalLines.push(
-      <Rect
+      <Line
         key={`v-${x}`}
-        x={x}
-        y={0}
-        width={1}
-        height={size.height}
-        fill="rgba(148, 163, 184, 0.14)"
+        points={[x, visibleTop, x, visibleBottom]}
+        stroke={x % (GRID_SIZE * 8) === 0 ? "rgba(148, 163, 184, 0.28)" : "rgba(148, 163, 184, 0.14)"}
+        strokeWidth={1}
         listening={false}
       />,
     );
   }
 
-  for (let y = 0; y <= size.height; y += GRID_SIZE) {
+  for (let y = firstGridY; y <= visibleBottom; y += GRID_SIZE) {
     horizontalLines.push(
-      <Rect
+      <Line
         key={`h-${y}`}
-        x={0}
-        y={y}
-        width={size.width}
-        height={1}
-        fill="rgba(148, 163, 184, 0.14)"
+        points={[visibleLeft, y, visibleRight, y]}
+        stroke={y % (GRID_SIZE * 8) === 0 ? "rgba(148, 163, 184, 0.28)" : "rgba(148, 163, 184, 0.14)"}
+        strokeWidth={1}
         listening={false}
       />,
     );
   }
 
   const handleStageClick = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+
     const stage = event.target.getStage();
     const pointer = stage?.getPointerPosition();
 
@@ -190,8 +227,10 @@ export function FactoryCanvas() {
       return;
     }
 
+    const worldPointer = screenToWorld(pointer, camera);
+
     if (selectedTool) {
-      placeBuilding(selectedTool, pointer.x, pointer.y);
+      placeBuilding(selectedTool, worldPointer.x, worldPointer.y);
       return;
     }
 
@@ -203,6 +242,23 @@ export function FactoryCanvas() {
     setSelectedBuilding(null);
   };
 
+  const handleStageMouseDown = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    const stage = event.target.getStage();
+    const pointer = stage?.getPointerPosition();
+    const clickedEmptyCanvas =
+      event.target === stage || event.target.name() === "canvas-background";
+
+    if (!pointer || !clickedEmptyCanvas) {
+      return;
+    }
+
+    panStartRef.current = {
+      pointer,
+      camera,
+      hasMoved: false,
+    };
+  };
+
   const updateBeltDraftPointer = (stage: Konva.Stage | null) => {
     const pointer = stage?.getPointerPosition();
 
@@ -210,16 +266,18 @@ export function FactoryCanvas() {
       return;
     }
 
+    const worldPointer = screenToWorld(pointer, camera);
+
     setBeltDraft((draft) =>
       draft
         ? {
             ...draft,
-            pointer,
+            pointer: worldPointer,
             hasMoved:
               draft.hasMoved ||
               Math.hypot(
-                pointer.x - draft.fromPort.x,
-                pointer.y - draft.fromPort.y,
+                worldPointer.x - draft.fromPort.x,
+                worldPointer.y - draft.fromPort.y,
               ) > 6,
           }
         : draft,
@@ -227,16 +285,55 @@ export function FactoryCanvas() {
   };
 
   const handleStageMouseMove = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    const panStart = panStartRef.current;
+    const pointer = event.target.getStage()?.getPointerPosition();
+
+    if (panStart && pointer) {
+      const deltaX = pointer.x - panStart.pointer.x;
+      const deltaY = pointer.y - panStart.pointer.y;
+      const hasMoved =
+        panStart.hasMoved || Math.hypot(deltaX, deltaY) > PAN_THRESHOLD;
+
+      if (hasMoved) {
+        panStartRef.current = {
+          ...panStart,
+          hasMoved: true,
+        };
+        setIsPanning(true);
+        setCamera(
+          clampCamera(
+            {
+              x: panStart.camera.x + deltaX,
+              y: panStart.camera.y + deltaY,
+            },
+            size,
+          ),
+        );
+      }
+    }
+
     if (beltDraft) {
       updateBeltDraftPointer(event.target.getStage());
     }
   };
 
   const handleStageMouseUp = () => {
+    if (panStartRef.current?.hasMoved) {
+      suppressNextClickRef.current = true;
+    }
+
+    panStartRef.current = null;
+    setIsPanning(false);
+
     if (beltDraft?.hasMoved) {
       cancelConnection();
       setBeltDraft(null);
     }
+  };
+
+  const handleStageMouseLeave = () => {
+    panStartRef.current = null;
+    setIsPanning(false);
   };
 
   const handleCanvasDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
@@ -260,7 +357,11 @@ export function FactoryCanvas() {
 
     event.preventDefault();
     const bounds = ref.current.getBoundingClientRect();
-    placeBuilding(buildingType, event.clientX - bounds.left, event.clientY - bounds.top);
+    placeBuilding(
+      buildingType,
+      event.clientX - bounds.left - camera.x,
+      event.clientY - bounds.top - camera.y,
+    );
   };
 
   const handlePortClick = (
@@ -307,7 +408,8 @@ export function FactoryCanvas() {
 
     event.cancelBubble = true;
     const stage = event.target.getStage();
-    const pointer = stage?.getPointerPosition() ?? { x: port.x, y: port.y };
+    const pointer = stage?.getPointerPosition();
+    const worldPointer = pointer ? screenToWorld(pointer, camera) : port;
     const endpoint = {
       buildingId,
       itemClassName: port.itemClassName,
@@ -319,7 +421,7 @@ export function FactoryCanvas() {
     setBeltDraft({
       from: endpoint,
       fromPort: port,
-      pointer,
+      pointer: worldPointer,
       hasMoved: false,
     });
   };
@@ -347,12 +449,19 @@ export function FactoryCanvas() {
   return (
     <section
       ref={ref}
-      className="relative h-full min-w-0 bg-slate-950"
+      className={`relative h-full min-w-0 bg-slate-950 ${
+        isPanning ? "cursor-grabbing" : selectedTool ? "cursor-crosshair" : "cursor-grab"
+      }`}
       onDragOver={handleCanvasDragOver}
       onDrop={handleCanvasDrop}
     >
       <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-md border border-slate-800 bg-slate-900/90 px-3 py-2 text-sm text-slate-300 shadow-lg">
-        {selectedTool ? `${selectedTool}: click the grid to place` : "Select a building or drag placed machines"}
+        {selectedTool
+          ? `${selectedTool}: click to place, drag empty grid to pan`
+          : "Drag empty grid to pan. Select or drag placed machines."}
+      </div>
+      <div className="pointer-events-none absolute bottom-4 left-4 z-10 rounded-md border border-slate-800 bg-slate-900/90 px-3 py-2 font-mono text-xs text-slate-400 shadow-lg">
+        World {Math.round(visibleLeft)}:{Math.round(visibleTop)} / {WORLD_SIZE}px
       </div>
       {primaryIssue ? (
         <div className="pointer-events-none absolute left-1/2 top-4 z-20 w-[min(720px,calc(100%-2rem))] -translate-x-1/2 rounded-md border border-amber-300 bg-amber-300 px-4 py-3 text-sm text-slate-950 shadow-xl">
@@ -374,23 +483,25 @@ export function FactoryCanvas() {
         width={size.width}
         height={size.height}
         onClick={handleStageClick}
+        onMouseDown={handleStageMouseDown}
         onMouseMove={handleStageMouseMove}
         onMouseUp={handleStageMouseUp}
+        onMouseLeave={handleStageMouseLeave}
       >
-        <Layer>
+        <Layer x={camera.x} y={camera.y}>
           <Rect
             name="canvas-background"
             x={0}
             y={0}
-            width={size.width}
-            height={size.height}
+            width={WORLD_SIZE}
+            height={WORLD_SIZE}
             fill="#0f172a"
           />
           {verticalLines}
           {horizontalLines}
         </Layer>
 
-        <Layer>
+        <Layer x={camera.x} y={camera.y}>
           {connections.map((connection) => {
             const from = getPortAtEndpoint(
               buildings,
@@ -478,7 +589,7 @@ export function FactoryCanvas() {
           ) : null}
         </Layer>
 
-        <Layer>
+        <Layer x={camera.x} y={camera.y}>
           {buildings.map((building) => {
             const colors = palette[building.type];
             const isSelected = selectedBuildingIds.includes(building.id);
@@ -502,7 +613,7 @@ export function FactoryCanvas() {
           })}
         </Layer>
 
-        <Layer>
+        <Layer x={camera.x} y={camera.y}>
           {buildings.flatMap((building) =>
             getPositionedPorts(building).map((port) => {
               const isPending =

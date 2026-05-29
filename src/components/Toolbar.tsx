@@ -1,6 +1,6 @@
-import { FolderOpen, Save, Search, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { Download, FolderOpen, Search, Trash2 } from "lucide-react";
+import type { ChangeEvent, ReactNode } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   buildingCategories,
   type BuildingCategory,
@@ -24,9 +24,10 @@ export function Toolbar() {
   const [query, setQuery] = useState("");
   const selectedTool = useFactoryStore((state) => state.selectedTool);
   const setSelectedTool = useFactoryStore((state) => state.setSelectedTool);
-  const saveDesign = useFactoryStore((state) => state.saveDesign);
-  const loadDesign = useFactoryStore((state) => state.loadDesign);
+  const getDesignSnapshot = useFactoryStore((state) => state.getDesignSnapshot);
+  const importDesign = useFactoryStore((state) => state.importDesign);
   const clearDesign = useFactoryStore((state) => state.clearDesign);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredCategories = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -40,6 +41,40 @@ export function Toolbar() {
       }))
       .filter((category) => category.tools.length > 0);
   }, [query]);
+
+  const downloadDesignFile = () => {
+    const design = getDesignSnapshot();
+    const blob = new Blob([JSON.stringify(design, null, 2)], {
+      type: "application/json",
+    });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = objectUrl;
+    link.download = `satisplanner-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  const handleDesignFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const imported = importDesign(JSON.parse(await file.text()));
+
+      if (!imported) {
+        window.alert("That file is not a valid SatisPlanner design.");
+      }
+    } catch {
+      window.alert("Could not read that design file.");
+    } finally {
+      event.currentTarget.value = "";
+    }
+  };
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col border-r border-slate-800 bg-slate-900">
@@ -77,15 +112,25 @@ export function Toolbar() {
       </div>
 
       <div className="grid grid-cols-3 gap-2 border-t border-slate-800 p-3">
-        <ActionButton label="Save" onClick={saveDesign}>
-          <Save className="h-5 w-5" aria-hidden="true" />
+        <ActionButton label="Download design" onClick={downloadDesignFile}>
+          <Download className="h-5 w-5" aria-hidden="true" />
         </ActionButton>
-        <ActionButton label="Load" onClick={loadDesign}>
+        <ActionButton
+          label="Load design file"
+          onClick={() => fileInputRef.current?.click()}
+        >
           <FolderOpen className="h-5 w-5" aria-hidden="true" />
         </ActionButton>
         <ActionButton label="Clear" onClick={clearDesign}>
           <Trash2 className="h-5 w-5" aria-hidden="true" />
         </ActionButton>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={handleDesignFileChange}
+        />
       </div>
     </aside>
   );
