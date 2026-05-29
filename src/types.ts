@@ -27,7 +27,11 @@ export type Building = {
   width: number;
   height: number;
   recipeClassName?: string | null;
+  extractionItemClassName?: string | null;
+  extractionPurity?: ResourcePurity;
 };
+
+export type ResourcePurity = "Impure" | "Normal" | "Pure";
 
 export type PortSide = "input" | "output";
 

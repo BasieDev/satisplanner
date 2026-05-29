@@ -2,6 +2,12 @@ import type { Building } from "../types";
 import { buildingToolByType } from "../buildingCatalog";
 import { getRecipeByClassName, getRecipesForPlacedBuilding } from "../data/satisfactoryData";
 import { formatRate, getBuildingPorts } from "../factoryPorts";
+import {
+  getMineableResource,
+  getMinerRate,
+  mineableResources,
+  resourcePurities,
+} from "../miningData";
 import { useFactoryStore } from "../store/factoryStore";
 import { RecipeBrowser } from "./RecipeBrowser";
 
@@ -11,9 +17,11 @@ type PropertiesPanelProps = {
 
 export function PropertiesPanel({ building }: PropertiesPanelProps) {
   const setBuildingRecipe = useFactoryStore((state) => state.setBuildingRecipe);
+  const setMinerResource = useFactoryStore((state) => state.setMinerResource);
   const recipeOptions = building ? getRecipesForPlacedBuilding(building.type) : [];
   const assignedRecipe = getRecipeByClassName(building?.recipeClassName);
   const ports = building ? getBuildingPorts(building) : [];
+  const minedResource = getMineableResource(building?.extractionItemClassName);
   const buildingLabel = building
     ? buildingToolByType.get(building.type)?.label ?? building.type
     : "";
@@ -53,36 +61,87 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
             </p>
           </section>
 
-          <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
-            <label
-              htmlFor="recipe-select"
-              className="text-xs font-medium uppercase tracking-wider text-slate-500"
-            >
-              Assigned recipe
-            </label>
-            {recipeOptions.length > 0 ? (
+          {building.type === "Miner" ? (
+            <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Mined resource
+              </p>
               <select
-                id="recipe-select"
-                value={building.recipeClassName ?? ""}
+                value={building.extractionItemClassName ?? ""}
                 onChange={(event) =>
-                  setBuildingRecipe(building.id, event.target.value || null)
+                  setMinerResource(
+                    building.id,
+                    event.target.value || null,
+                    building.extractionPurity ?? "Normal",
+                  )
                 }
                 className="mt-2 h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-amber-400"
               >
-                <option value="">None</option>
-                {recipeOptions.map((recipe) => (
-                  <option key={recipe.className} value={recipe.className}>
-                    {recipe.alternate ? "Alternate: " : ""}
-                    {recipe.name}
+                <option value="">Select resource</option>
+                {mineableResources.map((resource) => (
+                  <option key={resource.className} value={resource.className}>
+                    {resource.name}
                   </option>
                 ))}
               </select>
-            ) : (
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                No selectable production recipes for this building yet.
+              <select
+                value={building.extractionPurity ?? "Normal"}
+                onChange={(event) =>
+                  setMinerResource(
+                    building.id,
+                    building.extractionItemClassName ?? null,
+                    event.target.value as Building["extractionPurity"],
+                  )
+                }
+                className="mt-2 h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-amber-400"
+              >
+                {resourcePurities.map((purity) => (
+                  <option key={purity} value={purity}>
+                    {purity} node
+                  </option>
+                ))}
+              </select>
+              <p className="mt-3 text-xs text-slate-500">
+                {minedResource
+                  ? `${minedResource.name}: ${formatRate(
+                      getMinerRate(building.extractionPurity),
+                      minedResource.form,
+                    )}`
+                  : "Choose what this miner is placed on."}
               </p>
-            )}
-          </section>
+            </section>
+          ) : (
+            <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
+              <label
+                htmlFor="recipe-select"
+                className="text-xs font-medium uppercase tracking-wider text-slate-500"
+              >
+                Assigned recipe
+              </label>
+              {recipeOptions.length > 0 ? (
+                <select
+                  id="recipe-select"
+                  value={building.recipeClassName ?? ""}
+                  onChange={(event) =>
+                    setBuildingRecipe(building.id, event.target.value || null)
+                  }
+                  className="mt-2 h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-amber-400"
+                >
+                  <option value="">None</option>
+                  {recipeOptions.map((recipe) => (
+                    <option key={recipe.className} value={recipe.className}>
+                      {recipe.alternate ? "Alternate: " : ""}
+                      {recipe.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  No selectable production recipes for this building yet.
+                </p>
+              )}
+            </section>
+          )}
 
           {assignedRecipe || ports.length > 0 ? (
             <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
@@ -103,15 +162,20 @@ export function PropertiesPanel({ building }: PropertiesPanelProps) {
             </section>
           ) : (
             <div className="rounded-md border border-slate-800 bg-slate-950 p-4 text-sm leading-6 text-slate-500">
-              Assign a recipe to show the machine input and output ports.
+              {building.type === "Miner"
+                ? "Choose a mined resource to show the miner output port."
+                : "Assign a recipe to show the machine input and output ports."}
             </div>
           )}
 
           <RecipeBrowser
-            selectedBuildingType={building.type}
+            selectedBuildingType={building.type === "Miner" ? null : building.type}
             selectedRecipeClassName={building.recipeClassName}
-            onRecipeSelect={(recipeClassName) =>
-              setBuildingRecipe(building.id, recipeClassName)
+            onRecipeSelect={
+              building.type === "Miner"
+                ? undefined
+                : (recipeClassName) =>
+                    setBuildingRecipe(building.id, recipeClassName)
             }
           />
         </div>

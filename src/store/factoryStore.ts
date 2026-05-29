@@ -37,16 +37,23 @@ type FactoryState = {
   connections: BuildingConnection[];
   selectedTool: BuildingType | null;
   selectedBuildingId: string | null;
+  selectedBuildingIds: string[];
   pendingConnection: ConnectionEndpoint | null;
   setSelectedTool: (tool: BuildingType | null) => void;
-  setSelectedBuilding: (id: string | null) => void;
+  setSelectedBuilding: (id: string | null, additive?: boolean) => void;
   placeBuilding: (type: BuildingType, x: number, y: number) => void;
-  moveBuilding: (id: string, x: number, y: number) => void;
+  moveBuilding: (id: string, x: number, y: number, snapToGrid?: boolean) => void;
   setBuildingRecipe: (id: string, recipeClassName: string | null) => void;
   startConnection: (endpoint: ConnectionEndpoint) => void;
   finishConnection: (endpoint: ConnectionEndpoint) => void;
   cancelConnection: () => void;
   removeConnection: (id: string) => void;
+  setMinerResource: (
+    id: string,
+    itemClassName: string | null,
+    purity?: Building["extractionPurity"],
+  ) => void;
+  deleteSelectedBuildings: () => void;
   clearDesign: () => void;
   saveDesign: () => void;
   loadDesign: () => void;
@@ -68,20 +75,49 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
   connections: readSavedDesign()?.connections ?? [],
   selectedTool: null,
   selectedBuildingId: null,
+  selectedBuildingIds: [],
   pendingConnection: null,
 
   setSelectedTool: (tool) =>
     set({
       selectedTool: tool,
       selectedBuildingId: null,
+      selectedBuildingIds: [],
       pendingConnection: null,
     }),
 
-  setSelectedBuilding: (id) =>
-    set({
-      selectedBuildingId: id,
-      selectedTool: null,
-      pendingConnection: null,
+  setSelectedBuilding: (id, additive = false) =>
+    set((state) => {
+      if (!id) {
+        return {
+          selectedBuildingId: null,
+          selectedBuildingIds: [],
+          selectedTool: null,
+          pendingConnection: null,
+        };
+      }
+
+      if (!additive) {
+        return {
+          selectedBuildingId: id,
+          selectedBuildingIds: [id],
+          selectedTool: null,
+          pendingConnection: null,
+        };
+      }
+
+      const isAlreadySelected = state.selectedBuildingIds.includes(id);
+      const selectedBuildingIds = isAlreadySelected
+        ? state.selectedBuildingIds.filter((selectedId) => selectedId !== id)
+        : [...state.selectedBuildingIds, id];
+
+      return {
+        selectedBuildingId:
+          selectedBuildingIds[selectedBuildingIds.length - 1] ?? null,
+        selectedBuildingIds,
+        selectedTool: null,
+        pendingConnection: null,
+      };
     }),
 
   placeBuilding: (type, x, y) => {
@@ -91,28 +127,47 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       x: snap(x),
       y: snap(y),
       recipeClassName: null,
+      extractionItemClassName: null,
+      extractionPurity: type === "Miner" ? "Normal" : undefined,
       ...buildingDefaults[type],
     };
 
     set((state) => ({
       buildings: [...state.buildings, building],
       selectedBuildingId: building.id,
+      selectedBuildingIds: [building.id],
       pendingConnection: null,
     }));
   },
 
-  moveBuilding: (id, x, y) =>
-    set((state) => ({
-      buildings: state.buildings.map((building) =>
-        building.id === id
-          ? {
-              ...building,
-              x: snap(x),
-              y: snap(y),
-            }
-          : building,
-      ),
-    })),
+  moveBuilding: (id, x, y, snapToGrid = true) =>
+    set((state) => {
+      const draggedBuilding = state.buildings.find((building) => building.id === id);
+
+      if (!draggedBuilding) {
+        return state;
+      }
+
+      const targetX = snapToGrid ? snap(x) : x;
+      const targetY = snapToGrid ? snap(y) : y;
+      const selectedBuildingIds = state.selectedBuildingIds.includes(id)
+        ? state.selectedBuildingIds
+        : [id];
+      const deltaX = targetX - draggedBuilding.x;
+      const deltaY = targetY - draggedBuilding.y;
+
+      return {
+        buildings: state.buildings.map((building) =>
+          selectedBuildingIds.includes(building.id)
+            ? {
+                ...building,
+                x: building.x + deltaX,
+                y: building.y + deltaY,
+              }
+            : building,
+        ),
+      };
+    }),
 
   setBuildingRecipe: (id, recipeClassName) =>
     set((state) => ({
@@ -178,12 +233,55 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       connections: state.connections.filter((connection) => connection.id !== id),
     })),
 
+  setMinerResource: (id, itemClassName, purity) =>
+    set((state) => ({
+      buildings: state.buildings.map((building) =>
+        building.id === id
+          ? {
+              ...building,
+              extractionItemClassName: itemClassName,
+              extractionPurity: purity ?? building.extractionPurity ?? "Normal",
+            }
+          : building,
+      ),
+      connections: state.connections.filter(
+        (connection) =>
+          connection.from.buildingId !== id && connection.to.buildingId !== id,
+      ),
+      pendingConnection:
+        state.pendingConnection?.buildingId === id ? null : state.pendingConnection,
+    })),
+
+  deleteSelectedBuildings: () =>
+    set((state) => {
+      if (state.selectedBuildingIds.length === 0) {
+        return state;
+      }
+
+      const selectedBuildingIds = new Set(state.selectedBuildingIds);
+
+      return {
+        buildings: state.buildings.filter(
+          (building) => !selectedBuildingIds.has(building.id),
+        ),
+        connections: state.connections.filter(
+          (connection) =>
+            !selectedBuildingIds.has(connection.from.buildingId) &&
+            !selectedBuildingIds.has(connection.to.buildingId),
+        ),
+        selectedBuildingId: null,
+        selectedBuildingIds: [],
+        pendingConnection: null,
+      };
+    }),
+
   clearDesign: () => {
     window.localStorage.removeItem(STORAGE_KEY);
     set({
       buildings: [],
       connections: [],
       selectedBuildingId: null,
+      selectedBuildingIds: [],
       selectedTool: null,
       pendingConnection: null,
     });
@@ -203,6 +301,7 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       buildings: design?.buildings ?? [],
       connections: design?.connections ?? [],
       selectedBuildingId: null,
+      selectedBuildingIds: [],
       selectedTool: null,
       pendingConnection: null,
     });

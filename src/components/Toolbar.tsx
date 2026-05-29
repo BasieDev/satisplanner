@@ -1,4 +1,4 @@
-import { HardDriveDownload, Save, Search, Trash2 } from "lucide-react";
+import { FolderOpen, Save, Search, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
@@ -42,8 +42,8 @@ export function Toolbar() {
   }, [query]);
 
   return (
-    <aside className="flex h-full min-w-0 flex-col border-r border-slate-800 bg-slate-900">
-      <div className="border-b border-slate-800 p-4">
+    <aside className="flex h-full min-h-0 min-w-0 flex-col border-r border-slate-800 bg-slate-900">
+      <div className="shrink-0 border-b border-slate-800 p-4">
         <h1 className="text-base font-semibold text-slate-100">Build Menu</h1>
         <div className="mt-3 flex h-10 items-center gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 focus-within:border-amber-400">
           <Search className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
@@ -57,7 +57,7 @@ export function Toolbar() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {filteredCategories.length > 0 ? (
           <div className="space-y-5">
             {filteredCategories.map((category) => (
@@ -81,7 +81,7 @@ export function Toolbar() {
           <Save className="h-5 w-5" aria-hidden="true" />
         </ActionButton>
         <ActionButton label="Load" onClick={loadDesign}>
-          <HardDriveDownload className="h-5 w-5" aria-hidden="true" />
+          <FolderOpen className="h-5 w-5" aria-hidden="true" />
         </ActionButton>
         <ActionButton label="Clear" onClick={clearDesign}>
           <Trash2 className="h-5 w-5" aria-hidden="true" />
@@ -118,7 +118,16 @@ function ToolbarCategory({
               type="button"
               title={tool.label}
               aria-label={tool.label}
+              draggable
               onClick={() => onSelectTool(isSelected ? null : tool.type)}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "copy";
+                event.dataTransfer.setData(
+                  "application/x-satisplanner-building",
+                  tool.type,
+                );
+                event.dataTransfer.setData("text/plain", tool.type);
+              }}
               className={`flex min-h-16 w-full items-center gap-3 rounded-md border p-2 text-left transition ${
                 isSelected
                   ? "border-amber-400 bg-amber-400/12 shadow-[0_0_0_3px_rgba(251,191,36,0.14)]"

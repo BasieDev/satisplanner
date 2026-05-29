@@ -1,5 +1,6 @@
 import { type Building, type PortSide } from "./types";
 import { getRecipeByClassName, type RecipeAmount } from "./data/satisfactoryData";
+import { getMineableResource, getMinerRate } from "./miningData";
 
 export type PortDefinition = {
   id: string;
@@ -40,6 +41,25 @@ const amountToPort = (
 export const getBuildingPorts = (building: Building): PortDefinition[] => {
   if (building.type === "Storage") {
     return [anyItemPort("input"), anyItemPort("output")];
+  }
+
+  if (building.type === "Miner") {
+    const resource = getMineableResource(building.extractionItemClassName);
+
+    if (!resource) {
+      return [];
+    }
+
+    return [
+      {
+        id: `output:${resource.className}:0`,
+        side: "output",
+        itemClassName: resource.className,
+        itemName: resource.name,
+        ratePerMinute: getMinerRate(building.extractionPurity),
+        form: resource.form,
+      },
+    ];
   }
 
   const recipe = getRecipeByClassName(building.recipeClassName);
